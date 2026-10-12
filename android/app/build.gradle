@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+def appUrl = (project.findProperty('appUrl') ?: 'https://YOUR-DOMAIN.example').toString().replaceAll('/+$', '')
+def appHost = new URI(appUrl).host
+def keystoreFile = System.getenv('LK_KEYSTORE_FILE')
+
+android {
+    namespace 'com.labourkatta.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.labourkatta.app'
+        minSdk 24
+        targetSdk 35
+        versionCode((project.findProperty('versionCode') ?: '1').toString().toInteger())
+        versionName((project.findProperty('versionName') ?: '1.0.0').toString())
+        buildConfigField 'String', 'APP_URL', "\"${appUrl}\""
+        buildConfigField 'String', 'APP_HOST', "\"${appHost}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreFile) {
+                storeFile file(keystoreFile)
+                storePassword System.getenv('LK_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('LK_KEY_ALIAS')
+                keyPassword System.getenv('LK_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystoreFile) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

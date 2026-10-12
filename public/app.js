@@ -14,7 +14,7 @@ const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).m
 const S = {
   me: null, lang: store('lang') || 'en', view: store('view') || 'app',
   ctab: 'home', wtab: 'jobs', atab: 'overview',
-  login: { phone: '', code: '', sent: false, devCode: '' },
+  portal: store('portal') || '', login: { phone: '', code: '', sent: false, devCode: '' }, adm: { open: false, user: '', pass: '' },
   f: { cat: 'skilled', skillId: '', count: 4, days: 5, level: 'any', qc: false, pay: 'lk', site: '', start: '',
        company: '', gst: '', wname: '', warea: '', wexp: '1-3', wupi: '', wcat: 'skilled', wskills: {}, memMethod: 'upi',
        newEn: '', newHi: '', newMr: '', newCat: 'skilled', newWage: '' },
@@ -25,6 +25,7 @@ const t = (k, p) => { let s = (T[S.lang] && T[S.lang][k]) || T.en[k] || k; if (p
 const skillName = (s) => s ? (S.lang === 'hi' ? (s.hi || s.en) : S.lang === 'mr' ? (s.mr || s.en) : s.en) : '—';
 const bSkill = (b) => (S.lang === 'hi' ? b.skill_hi : S.lang === 'mr' ? b.skill_mr : b.skill_en) || b.skill_en;
 const settings = () => (S.me && S.me.settings) || {};
+const isAdmin = () => !!(S.me && ((S.me.user && S.me.user.isAdmin) || S.me.adminSession));
 
 let toastTimer;
 function toast(msg) { const el = document.getElementById('toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3500); }
@@ -34,7 +35,7 @@ async function api(method, url, body) {
   try { res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' }); }
   catch (e) { throw new Error(t('networkError')); }
   const json = await res.json().catch(() => ({}));
-  if (res.status === 401 && S.me && S.me.user) { await loadMe(); render(); }
+  if (res.status === 401 && S.me && (S.me.user || S.me.adminSession)) { await loadMe(); render(); }
   if (!res.ok) { const e = new Error(json.error || t('networkError')); e.code = json.code; e.status = res.status; throw e; }
   return json;
 }
@@ -46,9 +47,9 @@ async function act(fn) {
 // ---------- data loading ----------
 async function loadMe() { S.me = await api('GET', '/api/me'); if (S.me.user && S.me.user.lang && !store('lang')) S.lang = S.me.user.lang; }
 async function loadTab() {
-  const u = S.me && S.me.user; if (!u) return;
+  const u = S.me && S.me.user; if (!u && !isAdmin()) return;
   try {
-    if (S.view === 'admin' && u.isAdmin) {
+    if ((S.view === 'admin' || !u) && isAdmin()) {
       const map = { overview: ['overview'], pricing: ['settings'], skills: ['skills'], workers: ['workers', 'skills'], contractors: ['contractors'], bookings: ['bookings'], payments: ['payments'], outbox: ['notifications'] };
       for (const k of map[S.atab] || []) {
         const r = await api('GET', '/api/admin/' + k);
@@ -112,17 +113,30 @@ function renderTop() {
   const test = integ && (integ.payments === 'test' || integ.whatsapp === 'test');
   document.getElementById('top').innerHTML = '<header class="top"><div class="top-in">' +
     '<div class="brand"><div class="mark" aria-hidden="true">LK</div><b>Labour Katta</b></div>' +
-    (u && u.isAdmin ? '<div class="seg" role="group" aria-label="View"><button type="button" data-a="view" data-v="app" aria-pressed="' + (S.view !== 'admin') + '">' + esc(t('app')) + '</button><button type="button" data-a="view" data-v="admin" aria-pressed="' + (S.view === 'admin') + '">' + esc(t('admin')) + '</button></div>' : '') +
+    (u && isAdmin() ? '<div class="seg" role="group" aria-label="View"><button type="button" data-a="view" data-v="app" aria-pressed="' + (S.view !== 'admin') + '">' + esc(t('app')) + '</button><button type="button" data-a="view" data-v="admin" aria-pressed="' + (S.view === 'admin') + '">' + esc(t('admin')) + '</button></div>' : '') +
     '<div class="seg" role="group" aria-label="Language">' + langs.map(l => '<button type="button" data-a="lang" data-v="' + l[0] + '" aria-pressed="' + (S.lang === l[0]) + '">' + l[1] + '</button>').join('') + '</div>' +
-    (u ? '<button type="button" class="btn ghost small" data-a="logout">' + esc(t('signOut')) + '</button>' : '') +
-    '</div>' + (test ? '<div class="testbar"><span class="testpill">● ' + esc(t('testMode')) + '</span></div>' : '') + '</header>';
+    (u || isAdmin() ? '<button type="button" class="btn ghost small" data-a="logout">' + esc(t('signOut')) + '</button>' : '') +
+    '</div>' + (u && u.actingAs ? '<div class="testbar"><span class="testpill" style="background:var(--blue-soft);color:var(--blue)">' + esc(t('adminViewing', { n: u.name || u.phone })) + '</span>&nbsp;<button type="button" class="btn ghost small" data-a="stopActing">' + esc(t('backToAdmin')) + '</button></div>' : '') +
+    (test ? '<div class="testbar"><span class="testpill">● ' + esc(t('testMode')) + '</span></div>' : '') + '</header>';
 }
 
 // ---------- screens ----------
 function renderLogin() {
   const L = S.login;
-  let h = '<div class="login stack"><div class="row"><div class="mark" aria-hidden="true">LK</div><div><h1>Labour Katta</h1><span class="muted">' + esc(t('tagline')) + '</span></div></div><section class="card">';
-  if (!L.sent) {
+  let h = '<div class="login stack"><div class="row"><div class="mark" aria-hidden="true">LK</div><div><h1>Labour Katta</h1><span class="muted">' + esc(t('tagline')) + '</span></div></div>';
+  if (!S.portal) {
+    return h + '<h2>' + esc(t('choosePortal')) + '</h2>' +
+      opt('portal', 'portal', 'contractor', false, t('portalContractor'), t('portalContractorSub')) +
+      opt('portal', 'portal', 'worker', false, t('portalWorker'), t('portalWorkerSub')) +
+      opt('portal', 'portal', 'admin', false, t('portalAdmin'), t('portalAdminSub')) + '</div>';
+  }
+  const title = S.portal === 'admin' ? t('portalAdmin') : S.portal === 'worker' ? t('portalWorker') : t('portalContractor');
+  h += '<div class="row" style="justify-content:space-between"><h2>' + esc(title) + '</h2><button type="button" class="btn ghost small" data-a="portal" data-v="">← ' + esc(t('back')) + '</button></div><section class="card">';
+  if (S.portal === 'admin') {
+    h += '<label class="f" for="a-user">' + esc(t('username')) + '<input id="a-user" class="in" autocomplete="username" autocapitalize="off" data-af="user" value="' + esc(S.adm.user) + '"></label>' +
+      '<label class="f" for="a-pass">' + esc(t('password')) + '<input id="a-pass" class="in" type="password" autocomplete="current-password" data-af="pass" value="' + esc(S.adm.pass) + '"></label>' +
+      errBox() + '<button type="button" class="btn blue" data-a="adminLogin">' + esc(t('verify')) + '</button>';
+  } else if (!L.sent) {
     h += '<label class="f" for="l-phone">' + esc(t('phoneLabel')) + '<input id="l-phone" class="in" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" data-lf="phone" value="' + esc(L.phone) + '" placeholder="' + esc(t('phonePh')) + '"></label>' +
       errBox() + '<button type="button" class="btn primary" data-a="sendOtp">' + esc(t('sendCode')) + '</button>';
   } else {
@@ -162,7 +176,7 @@ function quote() {
   if (!sk) return null;
   const bonus = f.level === 'gold' ? s.gold_bonus : f.level === 'silver' ? s.silver_bonus : 0;
   const wage = sk.wage + bonus, price = wage + s.margin_per_worker_day, qcCost = f.qc ? s.qc_per_day * f.days : 0;
-  const jobFee = c && c.plan_status === 'active' ? 0 : s.job_fee;
+  const jobFee = c && c.access ? 0 : s.job_fee;
   return { sk, wage, price, qcCost, jobFee, total: price * f.count * f.days + qcCost + jobFee, feeNow: jobFee + qcCost, wagesYou: wage * f.count * f.days };
 }
 function statusPill(b) {
@@ -218,23 +232,36 @@ function renderMessages() {
   return '<section class="card"><h2>' + esc(t('waTitle')) + '</h2><p class="small muted" style="margin:0">' + esc(live ? t('waNoteLive') : t('waNoteTest')) + '</p>' +
     (S.data.messages.length ? S.data.messages.map(m => '<div class="msg"><div>' + esc(m.body) + '</div><div class="small muted num">' + esc(fmtTime(m.created_at)) + '</div></div>').join('') : '<p class="muted" style="margin:0">' + esc(t('noMessages')) + '</p>') + '</section>';
 }
+function renderActivate(c, s) {
+  const p = money(c.planPrice);
+  return '<div class="stack"><h1>' + esc(c.company) + '</h1>' +
+    '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('activateTitle')) + '</span><span class="big num">' + p + '</span><span>' + esc(t('activateBody', { p })) + '</span></section>' +
+    '<section class="card"><p style="margin:0">' + esc(t('planNoFee', { f: money(s.job_fee) })) + '</p>' +
+    (c.custom_price != null ? '<div class="status s-ok">' + esc(t('specialPrice', { p })) + '</div>' : '') +
+    (c.plan_status === 'trial' ? '<div class="status s-warn">' + esc(t('trialEnded')) + '</div>' : '') +
+    errBox() + '<button type="button" class="btn primary" data-a="startPlan">' + esc(t('activateBtn', { p })) + '</button>' +
+    '<span class="small muted">' + esc(t('offerNote')) + '</span></section></div>';
+}
 function renderContractor() {
   const c = S.me.contractor, s = settings();
+  if (!c.access) return renderActivate(c, s);
   let h = '<div class="stack">' + tabs([['home', t('tHome')], ['book', t('tBook')], ['bookings', t('tBookings')], ['plan', t('tPlan')], ['messages', t('tMessages')]], S.ctab, 'ctab');
   const live = S.data.bookings.filter(b => b.status !== 'cancelled');
   if (S.ctab === 'home') {
+    if (c.plan_status === 'trial') h += '<div class="status s-ok">' + esc(t('trialUntil', { d: fmtDate(c.trial_until) })) + '</div>';
     h += '<h1>' + esc(c.company) + '</h1><div class="grid3"><section class="card hero"><span class="muted small">' + esc(t('active')) + '</span><span class="big num">' + live.length + '</span></section>' +
       '<section class="card"><span class="muted small">' + esc(t('assignedWorkers')) + '</span><span class="big num">' + live.reduce((a, b) => a + b.team.length, 0) + '</span></section>' +
-      '<section class="card"><span class="muted small">' + esc(t('planLbl')) + '</span><span class="pill ' + (c.plan_status === 'active' ? 'p-green' : 'p-grey') + '" style="align-self:flex-start">' + esc(c.plan_status === 'active' ? t('planOn') : t('planOff')) + '</span></section></div>' +
+      '<section class="card"><span class="muted small">' + esc(t('planLbl')) + '</span><span class="pill ' + (c.access ? 'p-green' : 'p-grey') + '" style="align-self:flex-start">' + esc(c.plan_status === 'trial' ? t('trialUntil', { d: fmtDate(c.trial_until) }) : c.access ? t('planOn') : t('planOff')) + '</span></section></div>' +
       '<button type="button" class="btn primary wide" data-a="ctab" data-v="book">+ ' + esc(t('tBook')) + '</button>' + live.slice(0, 3).map(bookingCard).join('');
   }
   if (S.ctab === 'book') h += renderBook();
   if (S.ctab === 'bookings') h += S.data.bookings.length ? S.data.bookings.map(bookingCard).join('') : empty(t('noBookings'));
   if (S.ctab === 'plan') {
-    h += '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('planTitle')) + '</span><span class="big num">' + money(s.contractor_plan) + '</span><span>' + esc(t('planPrice', { p: money(s.contractor_plan) })) + '</span></section>' +
+    h += '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('planTitle')) + '</span><span class="big num">' + money(c.planPrice) + '</span><span>' + esc(t('planPrice', { p: money(c.planPrice) })) + '</span></section>' +
       '<section class="card"><p style="margin:0">' + esc(t('planNoFee', { f: money(s.job_fee) })) + '</p>' +
-      (c.plan_status === 'active' ? '<div class="status s-ok">' + esc(t('planSince', { d: fmtDate(c.plan_since) })) + '</div><button type="button" class="btn danger" data-a="cancelPlan">' + esc(t('cancelPlan')) + '</button>'
-        : (c.plan_status === 'cancelled' ? '<div class="status s-warn">' + esc(t('planCancelled')) + '</div>' : '') + '<button type="button" class="btn primary" data-a="startPlan">' + esc(t('startPlan')) + ' · ' + money(s.contractor_plan) + '</button>') + '</section>';
+      (c.plan_status === 'trial' ? '<div class="status s-ok">' + esc(t('trialUntil', { d: fmtDate(c.trial_until) })) + '</div><button type="button" class="btn primary" data-a="startPlan">' + esc(t('startPlan')) + ' · ' + money(c.planPrice) + '</button>' :
+       c.plan_status === 'active' ? '<div class="status s-ok">' + esc(t('planSince', { d: fmtDate(c.plan_since) })) + '</div><button type="button" class="btn danger" data-a="cancelPlan">' + esc(t('cancelPlan')) + '</button>'
+        : (c.plan_status === 'cancelled' ? '<div class="status s-warn">' + esc(t('planCancelled')) + '</div>' : '') + '<button type="button" class="btn primary" data-a="startPlan">' + esc(t('startPlan')) + ' · ' + money(c.planPrice) + '</button>') + '</section>';
   }
   if (S.ctab === 'messages') h += renderMessages();
   return h + '</div>';
@@ -246,9 +273,9 @@ function renderWorker() {
   const v = [['vAadhaar', w.verified_aadhaar], ['vPhoto', w.verified_photo], ['vBank', w.verified_bank], ['vTest', w.verified_test]];
   let h = '<div class="stack"><section class="card hero"><div class="row"><div class="av" aria-hidden="true">' + esc(initials(w.name)) + '</div><div class="grow"><h2>' + esc(w.name) + '</h2><span class="muted small">' + esc(w.skills.map(id => skillName(S.me.skills.find(x => x.id === id))).join(', ')) + '</span></div><span class="pill p-amber">' + esc(t(w.tier)) + '</span></div></section>';
   h += tabs([['jobs', t('tJobs')], ['work', t('tWork')], ['earn', t('tEarn')], ['member', t('tMember')], ['profile', t('tProfile')], ['messages', t('tMessages')]], S.wtab, 'wtab');
-  const member = w.membership_status === 'active';
+  const member = w.access;
   if (S.wtab === 'jobs') {
-    if (s.worker_membership_required && !member) h += '<div class="empty"><p style="margin:0">' + esc(t('needMember')) + '</p><button type="button" class="btn primary" data-a="wtab" data-v="member">' + esc(t('startMem')) + '</button></div>';
+    if (!member) h += '<div class="empty"><p style="margin:0">' + esc(t('needMember')) + '</p><button type="button" class="btn primary" data-a="wtab" data-v="member">' + esc(t('startMem')) + '</button></div>';
     else h += S.data.jobs.length ? S.data.jobs.map(b => '<section class="card offer"><h3>' + esc(bSkill(b)) + '</h3><span class="small">' + esc(b.site) + ' · ' + esc(t('starts')) + ' ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + '</span>' +
       '<div class="kv"><span class="big num">' + money(b.wage) + '<span class="small muted">' + esc(t('perDayShort')) + '</span></span><span class="pill p-blue">' + esc(t('needed', { n: b.needed })) + '</span></div>' +
       '<span class="small" style="color:var(--green-ink)">' + esc(b.pay_mode === 'lk' ? t('paidLK') : t('paidDirect')) + '</span>' +
@@ -267,14 +294,15 @@ function renderWorker() {
       '<section class="card"><div class="list">' + (S.data.work.length ? S.data.work.map(b => '<div class="li"><div class="grow"><b>' + esc(bSkill(b)) + '</b><div class="small muted">' + esc(b.site) + ' · ' + esc(b.days) + ' × ' + money(b.wage) + '</div></div><b class="num">' + money(b.wage * b.days) + '</b></div>').join('') : '<p class="muted" style="margin:0">' + esc(t('noWork')) + '</p>') + '</div></section>';
   }
   if (S.wtab === 'member') {
-    if (member) h += '<section class="card"><div class="status s-ok">' + esc(t('memOn')) + ' · ' + esc(w.membership_method === 'cash' ? t('memCash') : t('memUpi')) + ' · ' + esc(fmtDate(w.membership_since)) + '</div><button type="button" class="btn danger" data-a="cancelMem">' + esc(t('cancelMem')) + '</button></section>';
-    else if (w.membership_status === 'pending_cash') h += '<section class="card"><div class="status s-warn">' + esc(t('memPendingCash', { c: money(s.worker_cash_monthly) })) + '</div></section>';
+    if (w.membership_status === 'trial' && member) h += '<section class="card"><div class="status s-ok">' + esc(t('trialUntil', { d: fmtDate(w.trial_until) })) + '</div><span class="small muted">' + esc(t('trialKeep')) + '</span></section>';
+    if (w.membership_status === 'active') h += '<section class="card"><div class="status s-ok">' + esc(t('memOn')) + ' · ' + esc(w.membership_method === 'cash' ? t('memCash') : t('memUpi')) + ' · ' + esc(fmtDate(w.membership_since)) + '</div><button type="button" class="btn danger" data-a="cancelMem">' + esc(t('cancelMem')) + '</button></section>';
+    else if (w.membership_status === 'pending_cash') h += '<section class="card"><div class="status s-warn">' + esc(t('memPendingCash', { c: money(w.cashPrice) })) + '</div></section>';
     else {
       const upi = S.f.memMethod === 'upi';
-      h += '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('memTitle')) + '</span><span class="big num">' + money(upi ? s.worker_first_month : s.worker_cash_monthly) + '</span><span>' + esc(upi ? t('memUpiSub', { a: money(s.worker_first_month), m: money(s.worker_monthly) }) : t('memCashSub', { c: money(s.worker_cash_monthly) })) + '</span></section>' +
+      h += '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('memTitle')) + '</span><span class="big num">' + money(upi ? Math.min(s.worker_first_month, w.monthlyPrice) : w.cashPrice) + '</span><span>' + esc(upi ? t('memUpiSub', { a: money(Math.min(s.worker_first_month, w.monthlyPrice)), m: money(w.monthlyPrice) }) : t('memCashSub', { c: money(w.cashPrice) })) + '</span></section>' +
         '<section class="card"><span class="pill p-grey" style="align-self:flex-start">' + esc(t('memOff')) + '</span>' +
-        opt('set', 'memMethod', 'upi', upi, t('memUpi'), t('memUpiSub', { a: money(s.worker_first_month), m: money(s.worker_monthly) })) +
-        opt('set', 'memMethod', 'cash', !upi, t('memCash'), t('memCashSub', { c: money(s.worker_cash_monthly) })) +
+        opt('set', 'memMethod', 'upi', upi, t('memUpi'), t('memUpiSub', { a: money(Math.min(s.worker_first_month, w.monthlyPrice)), m: money(w.monthlyPrice) })) +
+        opt('set', 'memMethod', 'cash', !upi, t('memCash'), t('memCashSub', { c: money(w.cashPrice) })) +
         '<button type="button" class="btn primary" data-a="startMem">' + esc(t('startMem')) + '</button></section>';
     }
   }
@@ -306,7 +334,6 @@ function renderAdmin() {
     const d = S.cfgDraft || A.settings;
     h += '<section class="card"><h2>Plans & fees</h2><span class="small muted">All amounts in ₹. New prices apply to new bookings and new subscriptions.</span><div class="grid3">' +
       CFG.map(c => '<label class="f" for="cfg-' + c[0] + '">' + esc(c[1]) + '<input id="cfg-' + c[0] + '" class="in num" type="number" min="0" inputmode="numeric" data-cfg="' + c[0] + '" value="' + esc(d[c[0]]) + '"></label>').join('') + '</div>' +
-      '<button type="button" class="opt" data-a="toggleCfg" data-k="worker_membership_required" aria-pressed="' + !!d.worker_membership_required + '"><span class="dot"></span><span><b>Workers need an active membership to see job offers</b></span></button>' +
       '<div class="row"><button type="button" class="btn blue" data-a="saveCfg">Save prices</button>' + (S.cfgDraft ? '<span class="pill p-amber">Unsaved changes</span>' : '') + '</div></section>';
   }
   if (S.atab === 'skills' && A.skills) {
@@ -330,19 +357,27 @@ function renderAdmin() {
   }
   if (S.atab === 'workers' && A.workers) {
     const sk = A.skills || [];
-    h += '<section class="card"><h2>Workers & individual rates</h2><span class="small muted">Tick verifications after checking documents. Leave custom wage empty to use skill rate + tier bonus.</span><div class="tablebox"><table><thead><tr><th>Worker</th><th>Skills</th><th>Aadhaar</th><th>Photo</th><th>Bank</th><th>Skill test</th><th>Membership</th><th>Tier</th><th>Custom wage (₹)</th></tr></thead><tbody>' +
+    h += '<section class="card"><h2>Workers & individual rates</h2><span class="small muted">Tick verifications after checking documents. Leave custom wage empty to use skill rate + tier bonus.</span><div class="tablebox"><table><thead><tr><th>Worker</th><th>Skills</th><th>Aadhaar</th><th>Photo</th><th>Bank</th><th>Skill test</th><th>Membership</th><th>Free trial</th><th>Special price (₹/month)</th><th>Tier</th><th>Custom wage (₹)</th><th>Portal</th></tr></thead><tbody>' +
       (A.workers.length ? A.workers.map(w => '<tr><td><b>' + esc(w.name) + '</b><div class="small muted num">' + esc(w.phone) + (w.area ? ' · ' + esc(w.area) : '') + (w.upi_id ? ' · ' + esc(w.upi_id) : '') + '</div></td>' +
         '<td class="small">' + esc(w.skills.map(id => (sk.find(s => s.id === id) || {}).en || '—').join(', ')) + '</td>' +
         ['verified_aadhaar', 'verified_photo', 'verified_bank', 'verified_test'].map(k => '<td><input type="checkbox" style="width:22px;height:22px" aria-label="' + k.replace('verified_', '') + ' verified for ' + esc(w.name) + '" data-wk="' + esc(w.user_id) + '" data-fld="' + k + '"' + (w[k] ? ' checked' : '') + '></td>').join('') +
         '<td>' + (w.membership_status === 'active' ? '<span class="pill p-green">Active · ' + (w.membership_method === 'cash' ? 'Cash' : 'AutoPay') + '</span>'
-          : w.membership_status === 'pending_cash' ? '<button type="button" class="btn primary small" data-a="cashReceived" data-v="' + esc(w.user_id) + '">Cash received</button>' : '<span class="pill p-grey">' + esc(w.membership_status) + '</span>') + '</td>' +
+          : w.membership_status === 'trial' ? '<span class="pill p-blue">Trial to ' + esc(fmtDate(w.trial_until)) + '</span>'
+          : w.membership_status === 'pending_cash' ? '<button type="button" class="btn primary small" data-a="cashReceived" data-v="' + esc(w.user_id) + '">Cash received</button>' : '<span class="pill p-grey">Not paid</span>') + '</td>' +
+        '<td style="white-space:nowrap">' + (w.membership_status === 'active' ? '—' : '<input id="trial-' + esc(w.user_id) + '" class="in sm num" style="width:64px" type="number" min="1" max="365" value="30" aria-label="Trial days for ' + esc(w.name) + '"> <button type="button" class="btn ghost small" data-a="trialW" data-v="' + esc(w.user_id) + '">Give days</button>') + '</td>' +
+        '<td><input class="in sm num" style="width:100px" type="number" min="1" placeholder="Standard" aria-label="Special price for ' + esc(w.name) + '" data-wp="' + esc(w.user_id) + '" value="' + esc(w.custom_price == null ? '' : w.custom_price) + '"></td>' +
         '<td><select class="in sm" aria-label="Tier for ' + esc(w.name) + '" data-wk="' + esc(w.user_id) + '" data-fld="tier">' + ['bronze', 'silver', 'gold'].map(x => '<option value="' + x + '"' + (w.tier === x ? ' selected' : '') + '>' + x[0].toUpperCase() + x.slice(1) + '</option>').join('') + '</select></td>' +
-        '<td><input class="in sm num" style="width:100px" type="number" min="1" placeholder="—" aria-label="Custom wage for ' + esc(w.name) + '" data-wk="' + esc(w.user_id) + '" data-fld="custom_wage" value="' + esc(w.custom_wage == null ? '' : w.custom_wage) + '"></td></tr>').join('')
-        : '<tr><td colspan="9" class="muted">No workers yet.</td></tr>') + '</tbody></table></div></section>';
+        '<td><input class="in sm num" style="width:100px" type="number" min="1" placeholder="—" aria-label="Custom wage for ' + esc(w.name) + '" data-wk="' + esc(w.user_id) + '" data-fld="custom_wage" value="' + esc(w.custom_wage == null ? '' : w.custom_wage) + '"></td>' +
+        '<td><button type="button" class="btn blue small" data-a="actAs" data-v="' + esc(w.user_id) + '">Open</button></td></tr>').join('')
+        : '<tr><td colspan="12" class="muted">No workers yet.</td></tr>') + '</tbody></table></div></section>';
   }
   if (S.atab === 'contractors' && A.contractors) {
-    h += '<section class="card"><h2>Contractors</h2><div class="tablebox"><table><thead><tr><th>Company</th><th>Phone</th><th>GST</th><th>Plan</th><th>Joined</th></tr></thead><tbody>' +
-      (A.contractors.length ? A.contractors.map(c => '<tr><td><b>' + esc(c.company) + '</b></td><td class="num">' + esc(c.phone) + '</td><td>' + esc(c.gst || '—') + '</td><td><span class="pill ' + (c.plan_status === 'active' ? 'p-green' : 'p-grey') + '">' + esc(c.plan_status) + '</span></td><td class="num">' + esc(fmtDate(c.created_at)) + '</td></tr>').join('') : '<tr><td colspan="5" class="muted">No contractors yet.</td></tr>') + '</tbody></table></div></section>';
+    h += '<section class="card"><h2>Contractors</h2><span class="small muted">Contractors must pay the monthly plan before they can book or get messages. Give a free trial or a special price here.</span><div class="tablebox"><table><thead><tr><th>Company</th><th>Phone</th><th>Plan</th><th>Free trial</th><th>Special price (₹/month)</th><th>Joined</th><th>Portal</th></tr></thead><tbody>' +
+      (A.contractors.length ? A.contractors.map(c => '<tr><td><b>' + esc(c.company) + '</b><div class="small muted">' + esc(c.gst || '') + '</div></td><td class="num">' + esc(c.phone) + '</td>' +
+        '<td>' + (c.plan_status === 'active' ? '<span class="pill p-green">Paid</span>' : c.plan_status === 'trial' ? '<span class="pill p-blue">Trial to ' + esc(fmtDate(c.trial_until)) + '</span>' : '<span class="pill p-grey">Not paid</span>') + '</td>' +
+        '<td style="white-space:nowrap">' + (c.plan_status === 'active' ? '—' : '<input id="trial-' + esc(c.user_id) + '" class="in sm num" style="width:64px" type="number" min="1" max="365" value="30" aria-label="Trial days for ' + esc(c.company) + '"> <button type="button" class="btn ghost small" data-a="trialC" data-v="' + esc(c.user_id) + '">Give days</button>') + '</td>' +
+        '<td><input class="in sm num" style="width:100px" type="number" min="1" placeholder="Standard" aria-label="Special price for ' + esc(c.company) + '" data-cp="' + esc(c.user_id) + '" value="' + esc(c.custom_price == null ? '' : c.custom_price) + '"></td>' +
+        '<td class="num">' + esc(fmtDate(c.created_at)) + '</td><td><button type="button" class="btn blue small" data-a="actAs" data-v="' + esc(c.user_id) + '">Open</button></td></tr>').join('') : '<tr><td colspan="7" class="muted">No contractors yet.</td></tr>') + '</tbody></table></div></section>';
   }
   if (S.atab === 'bookings' && A.bookings) {
     h += '<section class="card"><h2>Bookings</h2><div class="tablebox"><table><thead><tr><th>Contractor</th><th>Work</th><th>Site</th><th>Start</th><th>Assigned</th><th>Payment</th><th>Amount</th><th>Status</th></tr></thead><tbody>' +
@@ -367,8 +402,9 @@ function render() {
   let html;
   const u = S.me && S.me.user;
   if (!S.me) html = '<p class="muted">' + esc(t('loading')) + '</p>';
+  else if (!u && S.me.adminSession) html = renderAdmin();
   else if (!u) html = renderLogin();
-  else if (S.view === 'admin' && u.isAdmin) html = renderAdmin();
+  else if (S.view === 'admin' && isAdmin()) html = renderAdmin();
   else if (!u.role) html = renderRole();
   else if (u.role === 'contractor') html = S.me.contractor ? renderContractor() : renderContractorProfile();
   else html = S.me.worker ? renderWorker() : '<div class="login stack">' + renderWorkerProfile(false) + '</div>';
@@ -395,6 +431,7 @@ document.addEventListener('click', (ev) => {
     toggle: () => { const k = b.getAttribute('data-k'); S.f[k] = !S.f[k]; },
     count: () => { S.f.count = Math.max(1, Math.min(100, S.f.count + (v === '-1' ? -1 : 1))); },
     wskill: () => { S.f.wskills[v] = !S.f.wskills[v]; },
+    portal: () => { S.portal = v; store('portal', v); S.login = { phone: '', code: '', sent: false, devCode: '' }; },
     changeNumber: () => { S.login = { phone: S.login.phone, code: '', sent: false, devCode: '' }; },
     askCancel: () => { S.confirmCancel = bid; }, noCancel: () => { S.confirmCancel = ''; },
     askDel: () => { S.confirmDel = v; }, noDel: () => { S.confirmDel = ''; },
@@ -406,8 +443,13 @@ document.addEventListener('click', (ev) => {
 
   const actions = {
     sendOtp: async () => { const r = await api('POST', '/api/auth/request-otp', { phone: S.login.phone, lang: S.lang }); S.login.sent = true; S.login.devCode = r.devCode || ''; },
-    verifyOtp: async () => { await api('POST', '/api/auth/verify-otp', { phone: S.login.phone, code: S.login.code, lang: S.lang }); S.login = { phone: '', code: '', sent: false, devCode: '' }; await refresh(); },
-    logout: async () => { await api('POST', '/api/auth/logout'); S.view = 'app'; store('view', 'app'); await loadMe(); },
+    verifyOtp: async () => { await api('POST', '/api/auth/verify-otp', { phone: S.login.phone, code: S.login.code, lang: S.lang, portal: S.portal }); S.login = { phone: '', code: '', sent: false, devCode: '' }; await refresh(); },
+    adminLogin: async () => { await api('POST', '/api/auth/admin-login', { username: S.adm.user, password: S.adm.pass }); S.adm = { open: false, user: '', pass: '' }; S.view = 'admin'; store('view', 'admin'); await refresh(); },
+    actAs: async () => { await api('POST', '/api/admin/act-as', { userId: v }); S.view = 'app'; store('view', 'app'); S.ctab = 'home'; S.wtab = 'jobs'; await refresh(); },
+    stopActing: async () => { await api('POST', '/api/auth/stop-acting'); S.view = 'admin'; store('view', 'admin'); await refresh(); },
+    trialC: async () => { const d = n0((document.getElementById('trial-' + v) || {}).value); await api('POST', '/api/admin/contractors/' + v + '/trial', { days: d }); toast('Free trial given'); await loadTab(); },
+    trialW: async () => { const d = n0((document.getElementById('trial-' + v) || {}).value); await api('POST', '/api/admin/workers/' + v + '/trial', { days: d }); toast('Free trial given'); await loadTab(); },
+    logout: async () => { await api('POST', '/api/auth/logout'); S.view = 'app'; store('view', 'app'); S.portal = ''; store('portal', ''); await loadMe(); },
     chooseRole: async () => { await api('POST', '/api/me/role', { role: v }); await loadMe(); },
     saveContractor: async () => { await api('POST', '/api/contractor/profile', { company: S.f.company, gst: S.f.gst }); await refresh(); },
     saveWorker: async () => { await api('POST', '/api/worker/profile', { name: S.f.wname, area: S.f.warea, experience: S.f.wexp, upiId: S.f.wupi, skills: Object.keys(S.f.wskills).filter(k => S.f.wskills[k]) }); toast(t('saved')); await refresh(); },
@@ -437,12 +479,15 @@ document.addEventListener('click', (ev) => {
 document.addEventListener('input', (ev) => {
   const el = ev.target;
   const lf = el.getAttribute('data-lf'); if (lf) { S.login[lf] = el.value; return; }
+  const af = el.getAttribute('data-af'); if (af) { S.adm[af] = el.value; return; }
   const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; return; }
   const c = el.getAttribute('data-cfg'); if (c) { S.cfgDraft = Object.assign({}, S.cfgDraft || S.admin.settings); S.cfgDraft[c] = n0(el.value); }
 });
 document.addEventListener('change', (ev) => {
   const el = ev.target;
   const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; if (k === 'start') render(); return; }
+  const cp = el.getAttribute('data-cp'), wp = el.getAttribute('data-wp');
+  if (cp || wp) { act(async () => { await api('POST', '/api/admin/' + (cp ? 'contractors/' + cp : 'workers/' + wp) + '/price', { price: el.value === '' ? null : n0(el.value) }); toast('Special price saved'); await loadTab(); }); return; }
   const sk = el.getAttribute('data-sk'), wk = el.getAttribute('data-wk'), fld = el.getAttribute('data-fld');
   if (sk && fld) act(async () => { await api('PATCH', '/api/admin/skills/' + sk, { [fld]: fld === 'wage' ? n0(el.value) : el.value }); toast('Saved'); await refresh(); });
   if (wk && fld) act(async () => {
@@ -452,12 +497,13 @@ document.addEventListener('change', (ev) => {
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter') return;
-  if (ev.target.matches('[data-sk],[data-wk]')) ev.target.blur();
+  if (ev.target.matches('[data-sk],[data-wk],[data-cp],[data-wp]')) ev.target.blur();
   if (ev.target.id === 'l-phone') document.querySelector('[data-a="sendOtp"]').click();
+  if (ev.target.id === 'a-pass') document.querySelector('[data-a="adminLogin"]').click();
   if (ev.target.id === 'l-code') document.querySelector('[data-a="verifyOtp"]').click();
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me && S.me.user) refresh(); });
-setInterval(() => { if (!document.hidden && S.me && S.me.user && !S.busy && !document.querySelector('.modal') && !(document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName))) loadTab().then(render); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me && (S.me.user || S.me.adminSession)) refresh(); });
+setInterval(() => { if (!document.hidden && S.me && (S.me.user || S.me.adminSession) && !S.busy && !document.querySelector('.modal') && !(document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName))) loadTab().then(render); }, 30000);
 
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 refresh().catch(e => { document.getElementById('app').innerHTML = '<div class="empty" style="margin-top:24px"><p style="margin:0">' + esc(e.message) + '</p></div>'; });

@@ -27,6 +27,9 @@ const config = {
   dbFile: env.DB_FILE || path.join(__dirname, '..', 'data', 'labour-katta.db'),
   jwtSecret: env.JWT_SECRET || (isProd ? '' : 'dev-only-secret-change-me'),
   adminPhones: (env.ADMIN_PHONES || '').split(',').map(s => s.replace(/\D/g, '').slice(-10)).filter(Boolean),
+  // Username + password login for the Admin panel. Set ADMIN_PASSWORD only in the server's private settings.
+  adminUsername: env.ADMIN_USERNAME || 'admin',
+  adminPassword: env.ADMIN_PASSWORD || '',
   timezone: 'Asia/Kolkata',
 
   razorpay: {
@@ -61,6 +64,9 @@ config.allowTestMode = !isProd || env.ALLOW_TEST_MODE === '1';
 
 if (isProd && !config.jwtSecret) {
   throw new Error('JWT_SECRET must be set in production.');
+}
+if (config.adminPassword && config.adminPassword.length < 8) {
+  throw new Error('ADMIN_PASSWORD must be at least 8 characters.');
 }
 if (isProd && config.razorpay.live && !config.razorpay.webhookSecret) {
   throw new Error('RAZORPAY_WEBHOOK_SECRET must be set when Razorpay keys are configured.');

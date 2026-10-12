@@ -93,6 +93,51 @@ r.post('/workers/:id/cash-received', async (req, res) => {
   res.json({ ok: true });
 });
 
+function trialUntil(days) {
+  const n = int(days, { min: 1, max: 365, name: 'Trial days' });
+  const { todayIST } = require('../util');
+  return todayIST(n);
+}
+// Free trial: the account gets full access (and notifications) until the date, without paying.
+r.post('/contractors/:id/trial', (req, res) => {
+  const c = domain.getContractor(req.params.id);
+  if (!c) throw new HttpError(404, 'Contractor not found.', 'not_found');
+  if (c.plan_status === 'active') throw bad('This contractor already has a paid plan.');
+  const until = trialUntil(req.body.days);
+  db.prepare("UPDATE contractors SET plan_status = 'trial', trial_until = ? WHERE user_id = ?").run(until, c.user_id);
+  res.json({ ok: true, trial_until: until });
+});
+r.post('/workers/:id/trial', (req, res) => {
+  const w = domain.getWorker(req.params.id);
+  if (!w) throw new HttpError(404, 'Worker not found.', 'not_found');
+  if (w.membership_status === 'active') throw bad('This worker already has a paid membership.');
+  const until = trialUntil(req.body.days);
+  db.prepare("UPDATE workers SET membership_status = 'trial', trial_until = ? WHERE user_id = ?").run(until, w.user_id);
+  res.json({ ok: true, trial_until: until });
+});
+// Special monthly price for one account (null = standard price). Applies to their next subscription.
+r.post('/contractors/:id/price', (req, res) => {
+  const c = domain.getContractor(req.params.id);
+  if (!c) throw new HttpError(404, 'Contractor not found.', 'not_found');
+  const v = req.body.price === null || req.body.price === '' ? null : int(req.body.price, { min: 1, max: 100000, name: 'Special price' });
+  db.prepare('UPDATE contractors SET custom_price = ? WHERE user_id = ?').run(v, c.user_id);
+  res.json({ ok: true });
+});
+r.post('/workers/:id/price', (req, res) => {
+  const w = domain.getWorker(req.params.id);
+  if (!w) throw new HttpError(404, 'Worker not found.', 'not_found');
+  const v = req.body.price === null || req.body.price === '' ? null : int(req.body.price, { min: 1, max: 100000, name: 'Special price' });
+  db.prepare('UPDATE workers SET custom_price = ? WHERE user_id = ?').run(v, w.user_id);
+  res.json({ ok: true });
+});
+// Open a contractor's or worker's portal as that account.
+r.post('/act-as', (req, res) => {
+  const u = db.prepare('SELECT id, role FROM users WHERE id = ?').get(String(req.body.userId || ''));
+  if (!u || !u.role) throw new HttpError(404, 'Account not found.', 'not_found');
+  auth.setActAs(res, u.id);
+  res.json({ ok: true, role: u.role });
+});
+
 r.get('/contractors', (req, res) => res.json({ contractors: db.prepare('SELECT c.*, u.phone FROM contractors c JOIN users u ON u.id = c.user_id ORDER BY c.created_at DESC LIMIT 1000').all() }));
 r.get('/bookings', (req, res) => {
   const rows = db.prepare('SELECT b.*, c.company FROM bookings b JOIN contractors c ON c.user_id = b.contractor_id ORDER BY b.created_at DESC LIMIT 500').all();

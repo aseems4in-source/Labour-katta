@@ -52,7 +52,7 @@ r.post('/contractor/bookings/:id/replace', auth.requireRole('contractor'), async
     db.prepare("UPDATE bookings SET status = 'open' WHERE id = ? AND status = 'assigned'").run(b.id);
   })();
   const c = domain.getContractor(req.user.id);
-  await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'replacement', params: { site: b.site } });
+  if (domain.contractorPlanActive(c)) await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'replacement', params: { site: b.site } });
   await domain.broadcastJobOffer(db.prepare('SELECT * FROM bookings WHERE id = ?').get(b.id));
   res.json({ ok: true });
 });

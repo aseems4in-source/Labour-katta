@@ -122,6 +122,11 @@ const MIGRATIONS = [
    CREATE INDEX payments_sub ON payments(rzp_subscription_id);
    CREATE TABLE rzp_plans (kind TEXT NOT NULL, amount INTEGER NOT NULL, plan_id TEXT NOT NULL, PRIMARY KEY (kind, amount));
    CREATE TABLE webhook_events (id TEXT PRIMARY KEY, received_at TEXT NOT NULL);`,
+  // 2: free trials and special prices granted by admin
+  `ALTER TABLE contractors ADD COLUMN trial_until TEXT;
+   ALTER TABLE contractors ADD COLUMN custom_price INTEGER;
+   ALTER TABLE workers ADD COLUMN trial_until TEXT;
+   ALTER TABLE workers ADD COLUMN custom_price INTEGER;`,
 ];
 
 db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');

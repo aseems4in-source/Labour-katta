@@ -18,7 +18,12 @@ function quote(settings, skill, { count, days, level, qc, payMode }, planActive)
   return { wage, price, qcCost, jobFee, total, feeNow, wagesYou, amountDue: payMode === 'lk' ? total : feeNow };
 }
 
-const contractorPlanActive = (c) => c && c.plan_status === 'active';
+// Paid (or admin-granted trial) accounts only. Unpaid accounts get no offers and no notifications.
+const contractorPlanActive = (c) => Boolean(c && (c.plan_status === 'active' || (c.plan_status === 'trial' && c.trial_until && c.trial_until >= todayIST())));
+const workerHasAccess = (w) => Boolean(w && (w.membership_status === 'active' || (w.membership_status === 'trial' && w.trial_until && w.trial_until >= todayIST())));
+const contractorPlanPrice = (c, s) => (c && c.custom_price != null ? c.custom_price : s.contractor_plan);
+const workerMonthlyPrice = (w, s) => (w && w.custom_price != null ? w.custom_price : s.worker_monthly);
+const workerCashPrice = (w, s) => (w && w.custom_price != null ? w.custom_price : s.worker_cash_monthly);
 const getContractor = (uid) => db.prepare('SELECT c.*, u.phone, u.lang FROM contractors c JOIN users u ON u.id = c.user_id WHERE c.user_id = ?').get(uid);
 const getWorker = (uid) => db.prepare('SELECT w.*, u.phone, u.lang FROM workers w JOIN users u ON u.id = w.user_id WHERE w.user_id = ?').get(uid);
 const workerSkillIds = (uid) => db.prepare('SELECT skill_id FROM worker_skills WHERE worker_id = ?').all(uid).map(r => r.skill_id);
@@ -36,8 +41,7 @@ function tierAllowed(tier, level) {
 }
 
 function eligibleJobs(worker) {
-  const settings = getSettings();
-  if (settings.worker_membership_required && worker.membership_status !== 'active') return [];
+  if (!workerHasAccess(worker)) return [];
   const skills = workerSkillIds(worker.user_id);
   if (!skills.length) return [];
   const rows = db.prepare(`SELECT b.*, c.company FROM bookings b JOIN contractors c ON c.user_id = b.contractor_id
@@ -48,10 +52,9 @@ function eligibleJobs(worker) {
 }
 
 async function broadcastJobOffer(booking) {
-  const settings = getSettings();
   const rows = db.prepare(`SELECT w.*, u.phone, u.lang FROM workers w JOIN users u ON u.id = w.user_id
     JOIN worker_skills ws ON ws.worker_id = w.user_id WHERE ws.skill_id = ?`).all(booking.skill_id);
-  const targets = rows.filter(w => tierAllowed(w.tier, booking.level) && (!settings.worker_membership_required || w.membership_status === 'active')).slice(0, 50);
+  const targets = rows.filter(w => tierAllowed(w.tier, booking.level) && workerHasAccess(w)).slice(0, 50);
   for (const w of targets) {
     await wa.sendTemplate({ userId: w.user_id, phone: w.phone, lang: w.lang, templateKey: 'jobOffer',
       params: { skill: skillLabel(booking, w.lang), site: booking.site, date: formatDate(booking.start_date), wage: rupees(workerDailyWage(w, booking)) } });
@@ -63,7 +66,7 @@ async function openBooking(bookingId) {
   if (!b || b.status !== 'pending_payment' && b.status !== 'open') return;
   db.prepare("UPDATE bookings SET status = 'open' WHERE id = ? AND status = 'pending_payment'").run(bookingId);
   const c = getContractor(b.contractor_id);
-  await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'bookingReceived',
+  if (contractorPlanActive(c)) await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'bookingReceived',
     params: { count: b.count, skill: skillLabel(b, c.lang), site: b.site, date: formatDate(b.start_date) } });
   await broadcastJobOffer(b);
 }
@@ -96,9 +99,10 @@ async function activateWorkerMembership(workerId, method, subscriptionId) {
 async function activateContractorPlan(contractorId, subscriptionId) {
   const c = getContractor(contractorId);
   if (!c || c.plan_status === 'active') return;
+  const amount = contractorPlanPrice(c, getSettings());
   db.prepare("UPDATE contractors SET plan_status = 'active', plan_since = ?, rzp_subscription_id = COALESCE(?, rzp_subscription_id) WHERE user_id = ?")
     .run(todayIST(), subscriptionId || null, contractorId);
-  await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'planStarted', params: { amount: rupees(getSettings().contractor_plan) } });
+  await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'planStarted', params: { amount: rupees(amount) } });
 }
 
 function deactivateBySubscription(subscriptionId) {
@@ -126,7 +130,7 @@ async function acceptJob(workerId, bookingId) {
   const c = getContractor(b.contractor_id);
   await wa.sendTemplate({ userId: worker.user_id, phone: worker.phone, lang: worker.lang, templateKey: 'jobConfirmed',
     params: { skill: skillLabel(b, worker.lang), site: b.site, date: formatDate(b.start_date), company: c.company, phone: c.phone } });
-  if (result.full) {
+  if (result.full && contractorPlanActive(c)) {
     await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'teamReady',
       params: { count: b.count, skill: skillLabel(b, c.lang), site: b.site, date: formatDate(b.start_date) } });
   }
@@ -153,6 +157,7 @@ function createBooking(contractorId, body) {
   if (!skill) throw bad('Choose a type of work.');
   const c = getContractor(contractorId);
   if (!c) throw new HttpError(403, 'Create your company profile first.', 'no_profile');
+  if (!contractorPlanActive(c)) throw new HttpError(402, 'Activate your contractor plan to book workers.', 'plan_required');
   const q = quote(getSettings(), skill, input, contractorPlanActive(c));
   const bookingId = id('bk');
   const needsPayment = q.amountDue > 0;
@@ -171,5 +176,5 @@ function createBooking(contractorId, body) {
 module.exports = {
   quote, getContractor, getWorker, workerSkillIds, eligibleJobs, acceptJob, createBooking, openBooking,
   fulfilPayment, activateWorkerMembership, activateContractorPlan, deactivateBySubscription,
-  contractorPlanActive, workerDailyWage, skillLabel, activeCount, broadcastJobOffer,
+  contractorPlanActive, workerHasAccess, contractorPlanPrice, workerMonthlyPrice, workerCashPrice, workerDailyWage, skillLabel, activeCount, broadcastJobOffer,
 };

@@ -56,14 +56,14 @@ r.post('/worker/membership', auth.requireRole('worker'), async (req, res) => {
   const s = getSettings();
   if (req.body.method === 'cash') {
     db.prepare("UPDATE workers SET membership_status = 'pending_cash', membership_method = 'cash' WHERE user_id = ?").run(w.user_id);
-    return res.json({ ok: true, status: 'pending_cash', amount: s.worker_cash_monthly });
+    return res.json({ ok: true, status: 'pending_cash', amount: domain.workerCashPrice(w, s) });
   }
   if (!config.razorpay.live) {
     assertTestModeAllowed();
     const p = newPayment(w.user_id, 'worker_membership', w.user_id, s.worker_first_month);
     return res.json({ payment: { mode: 'test', paymentId: p.id, amount: s.worker_first_month } });
   }
-  const sub = await rzp.createWorkerSubscription({ monthly: s.worker_monthly, firstMonth: s.worker_first_month, notes: { worker_id: w.user_id } });
+  const sub = await rzp.createWorkerSubscription({ monthly: domain.workerMonthlyPrice(w, s), firstMonth: Math.min(s.worker_first_month, domain.workerMonthlyPrice(w, s)), notes: { worker_id: w.user_id } });
   const p = newPayment(w.user_id, 'worker_membership', w.user_id, s.worker_first_month, { rzp_subscription_id: sub.id });
   db.prepare('UPDATE workers SET rzp_subscription_id = ? WHERE user_id = ?').run(sub.id, w.user_id);
   res.json({ payment: { mode: 'live', paymentId: p.id, amount: s.worker_first_month, checkout: { key: config.razorpay.keyId, subscription_id: sub.id, prefill: prefill(req.user) } } });
@@ -85,13 +85,15 @@ r.post('/contractor/plan', auth.requireRole('contractor'), async (req, res) => {
   const s = getSettings();
   if (!config.razorpay.live) {
     assertTestModeAllowed();
-    const p = newPayment(c.user_id, 'contractor_plan', c.user_id, s.contractor_plan);
-    return res.json({ payment: { mode: 'test', paymentId: p.id, amount: s.contractor_plan } });
+    const amount = domain.contractorPlanPrice(c, s);
+    const p = newPayment(c.user_id, 'contractor_plan', c.user_id, amount);
+    return res.json({ payment: { mode: 'test', paymentId: p.id, amount } });
   }
-  const sub = await rzp.createContractorSubscription({ monthly: s.contractor_plan, notes: { contractor_id: c.user_id } });
-  const p = newPayment(c.user_id, 'contractor_plan', c.user_id, s.contractor_plan, { rzp_subscription_id: sub.id });
+  const amount = domain.contractorPlanPrice(c, s);
+  const sub = await rzp.createContractorSubscription({ monthly: amount, notes: { contractor_id: c.user_id } });
+  const p = newPayment(c.user_id, 'contractor_plan', c.user_id, amount, { rzp_subscription_id: sub.id });
   db.prepare('UPDATE contractors SET rzp_subscription_id = ? WHERE user_id = ?').run(sub.id, c.user_id);
-  res.json({ payment: { mode: 'live', paymentId: p.id, amount: s.contractor_plan, checkout: { key: config.razorpay.keyId, subscription_id: sub.id, prefill: prefill(req.user) } } });
+  res.json({ payment: { mode: 'live', paymentId: p.id, amount, checkout: { key: config.razorpay.keyId, subscription_id: sub.id, prefill: prefill(req.user) } } });
 });
 
 r.post('/contractor/plan/cancel', auth.requireRole('contractor'), async (req, res) => {

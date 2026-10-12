@@ -6,10 +6,10 @@ const { db, getSettings } = require('../db');
 const { id, nowIso, normalizePhone, bad, str, HttpError } = require('../util');
 const auth = require('../auth');
 const wa = require('../services/whatsapp');
-const { getContractor, getWorker, workerSkillIds } = require('../domain');
+const { getContractor, getWorker, workerSkillIds, contractorPlanActive, workerHasAccess, contractorPlanPrice, workerMonthlyPrice, workerCashPrice } = require('../domain');
 
 const r = require('../router')();
-const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false,
+const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number(process.env.LOGIN_RATE_LIMIT || 20), standardHeaders: 'draft-7', legacyHeaders: false,
   message: { error: 'Too many attempts. Please wait a few minutes and try again.', code: 'rate_limited' } });
 
 r.post('/auth/request-otp', otpLimiter, async (req, res) => {
@@ -29,18 +29,35 @@ r.post('/auth/request-otp', otpLimiter, async (req, res) => {
 r.post('/auth/verify-otp', otpLimiter, (req, res) => {
   const phone = normalizePhone(req.body.phone);
   if (!phone) throw bad('Enter a valid 10-digit Indian mobile number.', 'bad_phone');
+  const portal = ['worker', 'contractor'].includes(req.body.portal) ? req.body.portal : null;
+  if (!portal) throw bad('Choose the Contractor or Worker portal first.', 'no_portal');
+  const existing = db.prepare('SELECT role FROM users WHERE phone = ?').get(phone);
+  if (existing && existing.role && existing.role !== portal) {
+    throw new HttpError(403, existing.role === 'worker'
+      ? 'This number is registered as a worker. Please use the Worker portal.'
+      : 'This number is registered as a contractor. Please use the Contractor portal.', 'wrong_portal');
+  }
   auth.checkOtp(phone, req.body.code);
   let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
   if (!user) {
     const lang = ['en', 'hi', 'mr'].includes(req.body.lang) ? req.body.lang : 'en';
-    user = { id: id('u'), phone, role: null, lang, created_at: nowIso() };
+    user = { id: id('u'), phone, role: portal, lang, created_at: nowIso() };
     db.prepare('INSERT INTO users (id, phone, role, lang, created_at) VALUES (@id, @phone, @role, @lang, @created_at)').run(user);
+  } else if (!user.role) {
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(portal, user.id); user.role = portal;
   }
   auth.setSession(res, user.id);
   res.json({ ok: true });
 });
 
-r.post('/auth/logout', (req, res) => { auth.clearSession(res); res.json({ ok: true }); });
+r.post('/auth/logout', (req, res) => { auth.clearSession(res); auth.clearAdmin(res); res.json({ ok: true }); });
+
+r.post('/auth/stop-acting', (req, res) => { auth.clearActAs(res); res.json({ ok: true }); });
+
+r.post('/auth/admin-login', otpLimiter, (req, res) => {
+  auth.adminLogin(req, res, String(req.body.username || '').trim(), String(req.body.password || ''));
+  res.json({ ok: true });
+});
 
 r.get('/me', (req, res) => {
   const settings = getSettings();
@@ -49,16 +66,21 @@ r.get('/me', (req, res) => {
     settings, skills,
     integrations: { payments: config.razorpay.live ? 'live' : 'test', whatsapp: config.whatsapp.live ? 'live' : 'test' },
     razorpayKeyId: config.razorpay.live ? config.razorpay.keyId : null,
+    adminSession: Boolean(req.adminSession), adminPasswordLogin: Boolean(config.adminPassword),
   };
   if (!req.user) return res.json(Object.assign(base, { user: null }));
   const u = req.user;
-  const contractor = u.role === 'contractor' ? getContractor(u.id) || null : null;
+  let contractor = u.role === 'contractor' ? getContractor(u.id) || null : null;
+  if (contractor) contractor = Object.assign({}, contractor, { access: contractorPlanActive(contractor), planPrice: contractorPlanPrice(contractor, settings) });
   let worker = u.role === 'worker' ? getWorker(u.id) || null : null;
-  if (worker) worker = Object.assign({}, worker, { skills: workerSkillIds(u.id) });
-  res.json(Object.assign(base, { user: { id: u.id, phone: u.phone, role: u.role, lang: u.lang, isAdmin: u.isAdmin }, contractor, worker }));
+  if (worker) worker = Object.assign({}, worker, { skills: workerSkillIds(u.id), access: workerHasAccess(worker), monthlyPrice: workerMonthlyPrice(worker, settings), cashPrice: workerCashPrice(worker, settings) });
+  let name = '';
+  if (u.actingAs) name = contractor ? contractor.company : worker ? worker.name : u.phone;
+  res.json(Object.assign(base, { user: { id: u.id, phone: u.phone, role: u.role, lang: u.lang, isAdmin: Boolean(u.isAdmin), actingAs: Boolean(u.actingAs), name }, contractor, worker }));
 });
 
 r.post('/me/role', auth.requireUser, (req, res) => {
+  if (req.user.role) throw bad('Your account type is already set.', 'role_set');
   const role = req.body.role;
   if (!['worker', 'contractor'].includes(role)) throw bad('Choose worker or contractor.');
   if (req.user.role && req.user.role !== role) throw bad('This phone number is already registered with a different account type.', 'role_set');

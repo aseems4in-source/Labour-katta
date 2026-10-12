@@ -1,0 +1,24 @@
+{
+  "name": "labour-katta",
+  "version": "1.0.0",
+  "description": "Labour Katta: construction labour booking app (workers, contractors, admin) with Razorpay UPI AutoPay and WhatsApp.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/smoke.test.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}

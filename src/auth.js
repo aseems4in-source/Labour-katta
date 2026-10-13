@@ -70,11 +70,13 @@ function adminLogin(req, res, username, password) {
   if (f && f.until > Date.now()) throw new HttpError(429, 'Too many wrong attempts. Try again in 15 minutes.', 'admin_locked');
   const digest = (v) => crypto.createHash('sha256').update(String(v || '')).digest();
   let claim = null;
-  if (config.adminPassword && crypto.timingSafeEqual(digest(username), digest(config.adminUsername))) {
-    if (crypto.timingSafeEqual(digest(password), digest(config.adminPassword))) claim = { adm: 'root' };
+  // Username is not case-sensitive (Admin = admin); password is, after trimming spaces.
+  const pw = String(password || '').trim();
+  if (config.adminPassword && crypto.timingSafeEqual(digest(String(username || '').toLowerCase()), digest(config.adminUsername.toLowerCase()))) {
+    if (crypto.timingSafeEqual(digest(pw), digest(config.adminPassword))) claim = { adm: 'root' };
   } else {
     const st = db.prepare('SELECT * FROM staff_users WHERE username = ? COLLATE NOCASE AND active = 1').get(String(username || ''));
-    if (st && verifyPassword(password, st.pass_hash)) claim = { adm: 'staff', sid: st.id };
+    if (st && (verifyPassword(password, st.pass_hash) || verifyPassword(pw, st.pass_hash))) claim = { adm: 'staff', sid: st.id };
   }
   if (!claim) {
     const n = (f && f.until <= Date.now() ? 0 : (f ? f.n : 0)) + 1;

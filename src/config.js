@@ -28,8 +28,9 @@ const config = {
   jwtSecret: env.JWT_SECRET || (isProd ? '' : 'dev-only-secret-change-me'),
   adminPhones: (env.ADMIN_PHONES || '').split(',').map(s => s.replace(/\D/g, '').slice(-10)).filter(Boolean),
   // Username + password login for the Admin panel. Set ADMIN_PASSWORD only in the server's private settings.
-  adminUsername: env.ADMIN_USERNAME || 'admin',
-  adminPassword: env.ADMIN_PASSWORD || '',
+  // Trimmed so a stray space pasted into the hosting dashboard doesn't break the login.
+  adminUsername: (env.ADMIN_USERNAME || 'admin').trim(),
+  adminPassword: (env.ADMIN_PASSWORD || '').trim(),
   timezone: 'Asia/Kolkata',
 
   razorpay: {

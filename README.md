@@ -95,3 +95,25 @@ docs/                    WhatsApp template texts
 - Sessions are signed, http-only cookies (secure in production).
 - Payment success is only trusted after Razorpay signature checks, from checkout or webhooks. Webhooks are idempotent.
 - A booking can never be over-filled: accepting a job runs in a database transaction.
+
+## Phase 2 features
+
+- **Availability:** Available / Busy until a date / Unavailable, a calendar of days off, and a travel radius from the worker's home.
+- **Smart matching:** workers ranked by distance, attendance record, rating, experience, level and the builder's favourites. Find workers has filters for area, experience, rating, wage, level, ID-verified and free-on-dates.
+- **Favourites, saved teams, Book again:** preferred workers are put on a new booking first if they are free.
+- **Levels earned automatically:**
+  - Bronze = registered.
+  - Silver = Aadhaar + photo checked and profile complete.
+  - Gold = Silver + skill test + 5 jobs + 85% reliability + 4★ (if rated).
+  - The admin can only cap a level lower.
+- **Ratings after the job ends:** workers can dispute a rating, and the admin keeps or removes it.
+- **Builder verification:** ID/KYC + GST or site visit = "Verified builder", shown to workers.
+- **Builder dashboard:** "Today's site summary".
+- **Attendance register:** past days, overtime hours at the agreed rate (default wage ÷ 8 × multiplier) and wage finalising. After finalising, changes go through a payment dispute.
+- **Reminders:** the evening before a job, with an "I will come" confirmation. The builder is alerted if a worker hasn't confirmed. Builders and supervisors can send an urgent message to everyone on a site.
+- **Help:**
+  - Report a problem, with categories. Urgent reports and accidents go to the admin on WhatsApp.
+  - Block.
+  - An admin "Reports & disputes" tab, plus a new supervisor permission for it.
+
+The scheduler runs inside the web server every 5 minutes. Set `DISABLE_SCHEDULER=1` to turn it off.

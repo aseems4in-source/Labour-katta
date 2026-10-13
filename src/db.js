@@ -137,6 +137,70 @@ const MIGRATIONS = [
   // 4: workers can switch themselves off ("not available for work")
   `ALTER TABLE workers ADD COLUMN available INTEGER NOT NULL DEFAULT 1;
    CREATE INDEX assignments_worker ON assignments(worker_id);`,
+  // 5: platform fee, deleted accounts, coupons, supervisors and their workload
+  `ALTER TABLE users ADD COLUMN deleted_at TEXT;
+   ALTER TABLE bookings ADD COLUMN platform_fee INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE bookings ADD COLUMN supervisor_id TEXT;
+   CREATE TABLE coupons (
+     id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+     applies_to TEXT NOT NULL CHECK (applies_to IN ('builder','worker','both')),
+     kind TEXT NOT NULL CHECK (kind IN ('percent','flat','days')),
+     value INTEGER NOT NULL, max_uses INTEGER, expires TEXT, active INTEGER NOT NULL DEFAULT 1, note TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL
+   );
+   CREATE TABLE coupon_redemptions (user_id TEXT PRIMARY KEY, coupon_id TEXT NOT NULL, redeemed_at TEXT NOT NULL);
+   CREATE TABLE staff_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, perms TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
+   CREATE TABLE staff_users (
+     id TEXT PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL UNIQUE COLLATE NOCASE, pass_hash TEXT NOT NULL,
+     phone TEXT NOT NULL DEFAULT '', group_id TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+   );
+   CREATE INDEX bookings_supervisor ON bookings(supervisor_id);`,
+  // 6: worker "I have reached the site" check-ins, confirmed by the builder or supervisor as attendance.
+  `CREATE TABLE checkins (
+     booking_id TEXT NOT NULL, worker_id TEXT NOT NULL, date TEXT NOT NULL, at TEXT NOT NULL,
+     PRIMARY KEY (booking_id, worker_id, date)
+   );`,
+  // 7: availability calendar, travel radius, automatic levels, builder verification, overtime, wage finalising,
+  //    confirmations and reminders, ratings and disputes, favourites and teams, reports and blocks.
+  `ALTER TABLE workers ADD COLUMN avail_status TEXT NOT NULL DEFAULT 'available';
+   ALTER TABLE workers ADD COLUMN busy_until TEXT;
+   ALTER TABLE workers ADD COLUMN home_lat REAL;
+   ALTER TABLE workers ADD COLUMN home_lng REAL;
+   ALTER TABLE workers ADD COLUMN radius_km INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE workers ADD COLUMN tier_cap TEXT NOT NULL DEFAULT 'gold';
+   UPDATE workers SET avail_status = CASE WHEN available = 0 THEN 'unavailable' ELSE 'available' END;
+   ALTER TABLE contractors ADD COLUMN verified_id INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE contractors ADD COLUMN verified_gst INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE contractors ADD COLUMN verified_site INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE bookings ADD COLUMN report_time TEXT NOT NULL DEFAULT '09:00';
+   ALTER TABLE bookings ADD COLUMN ot_rate INTEGER;
+   ALTER TABLE bookings ADD COLUMN prefer TEXT;
+   ALTER TABLE attendance ADD COLUMN ot_hours REAL NOT NULL DEFAULT 0;
+   ALTER TABLE attendance ADD COLUMN note TEXT NOT NULL DEFAULT '';
+   ALTER TABLE assignments ADD COLUMN confirmed_at TEXT;
+   ALTER TABLE assignments ADD COLUMN wages_final_at TEXT;
+   ALTER TABLE assignments ADD COLUMN wages_final_amount INTEGER;
+   CREATE TABLE worker_off_days (worker_id TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY (worker_id, date));
+   CREATE TABLE ratings (
+     booking_id TEXT NOT NULL, worker_id TEXT NOT NULL, contractor_id TEXT NOT NULL,
+     stars INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5), comment TEXT NOT NULL DEFAULT '',
+     dispute TEXT NOT NULL DEFAULT '', dispute_status TEXT NOT NULL DEFAULT 'none',
+     created_at TEXT NOT NULL, PRIMARY KEY (booking_id, worker_id)
+   );
+   CREATE INDEX ratings_worker ON ratings(worker_id);
+   CREATE TABLE favourites (contractor_id TEXT NOT NULL, worker_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (contractor_id, worker_id));
+   CREATE TABLE teams (id TEXT PRIMARY KEY, contractor_id TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL);
+   CREATE TABLE team_members (team_id TEXT NOT NULL, worker_id TEXT NOT NULL, skill_id TEXT NOT NULL, PRIMARY KEY (team_id, worker_id));
+   CREATE TABLE reports (
+     id TEXT PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, urgent INTEGER NOT NULL DEFAULT 0,
+     booking_id TEXT, from_user TEXT NOT NULL, against_user TEXT, text TEXT NOT NULL,
+     status TEXT NOT NULL DEFAULT 'open', resolution TEXT NOT NULL DEFAULT '', resolved_by TEXT,
+     created_at TEXT NOT NULL, resolved_at TEXT
+   );
+   CREATE INDEX reports_status ON reports(status);
+   CREATE TABLE blocks (blocker_id TEXT NOT NULL, blocked_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (blocker_id, blocked_id));
+   CREATE TABLE reminders (booking_id TEXT NOT NULL, worker_id TEXT NOT NULL, kind TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (booking_id, worker_id, kind));
+   CREATE TABLE site_notices (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL, text TEXT NOT NULL, sent_by TEXT NOT NULL, created_at TEXT NOT NULL);`,
 ];
 
 db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
@@ -153,7 +217,8 @@ for (let i = current; i < MIGRATIONS.length; i++) {
 const DEFAULT_SETTINGS = {
   worker_first_month: 9, worker_monthly: 79, worker_cash_monthly: 79,
   contractor_plan: 599, job_fee: 99, qc_per_day: 500, margin_per_worker_day: 150,
-  silver_bonus: 50, gold_bonus: 100, worker_membership_required: 1,
+  silver_bonus: 50, gold_bonus: 100, worker_membership_required: 1, platform_fee_per_worker: 20,
+  ot_multiplier: 2, reminder_hour: 18, confirm_hours_before: 2,
 };
 const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, String(v));

@@ -22,7 +22,7 @@ function issueOtp(phone) {
   return code;
 }
 
-function checkOtp(phone, code) {
+function checkOtp(phone, code, keep) {
   const row = db.prepare('SELECT * FROM otps WHERE phone = ?').get(phone);
   if (!row || row.expires_at < Date.now()) throw new HttpError(400, 'This code has expired. Ask for a new one.', 'otp_expired');
   if (row.attempts >= OTP_MAX_ATTEMPTS) throw new HttpError(429, 'Too many wrong codes. Ask for a new one.', 'otp_locked');
@@ -31,31 +31,63 @@ function checkOtp(phone, code) {
     db.prepare('UPDATE otps SET attempts = attempts + 1 WHERE phone = ?').run(phone);
     throw new HttpError(400, 'That code is not right. Check the WhatsApp message and try again.', 'otp_wrong');
   }
-  db.prepare('DELETE FROM otps WHERE phone = ?').run(phone);
+  // keep: the code was right but the number is not registered yet, so the same code can be used to sign up.
+  if (!keep) db.prepare('DELETE FROM otps WHERE phone = ?').run(phone);
 }
 
-// ---- admin username/password login ----
+// ---- admin and supervisor (staff) username/password login ----
 const ADMIN_COOKIE = 'lk_admin';
 const ACT_COOKIE = 'lk_actas';
+// What a supervisor group can be allowed to do. The main admin can do everything, including managing staff.
+const PERMS = {
+  bookings: 'See all bookings and assign supervisors',
+  workers: 'Add, edit and delete workers; verify, tiers, trials, cash',
+  builders: 'Add, edit and delete builders; trials and special prices',
+  pricing: 'Change prices, fees and skills',
+  coupons: 'Create and manage coupon codes',
+  payments: 'See payments and WhatsApp messages',
+  open_portals: 'Open a worker or builder portal',
+  disputes: 'Handle reports, disputes and reviews; verify builders',
+};
+const ALL_PERMS = Object.keys(PERMS);
+
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const key = crypto.scryptSync(String(pw), salt, 32);
+  return 'scrypt$' + salt.toString('hex') + '$' + key.toString('hex');
+}
+function verifyPassword(pw, stored) {
+  const [kind, saltHex, keyHex] = String(stored || '').split('$');
+  if (kind !== 'scrypt' || !saltHex || !keyHex) return false;
+  const key = crypto.scryptSync(String(pw), Buffer.from(saltHex, 'hex'), 32);
+  return crypto.timingSafeEqual(key, Buffer.from(keyHex, 'hex'));
+}
+
 const adminFails = new Map(); // ip -> { n, until }
 function adminLogin(req, res, username, password) {
   const ip = req.ip || 'x';
   const f = adminFails.get(ip);
   if (f && f.until > Date.now()) throw new HttpError(429, 'Too many wrong attempts. Try again in 15 minutes.', 'admin_locked');
-  if (!config.adminPassword) throw new HttpError(503, 'Admin password login is not set up on the server.', 'admin_disabled');
-  const digest = (s) => crypto.createHash('sha256').update(String(s || '')).digest();
-  const ok = crypto.timingSafeEqual(digest(username), digest(config.adminUsername)) & crypto.timingSafeEqual(digest(password), digest(config.adminPassword));
-  if (!ok) {
+  const digest = (v) => crypto.createHash('sha256').update(String(v || '')).digest();
+  let claim = null;
+  if (config.adminPassword && crypto.timingSafeEqual(digest(username), digest(config.adminUsername))) {
+    if (crypto.timingSafeEqual(digest(password), digest(config.adminPassword))) claim = { adm: 'root' };
+  } else {
+    const st = db.prepare('SELECT * FROM staff_users WHERE username = ? COLLATE NOCASE AND active = 1').get(String(username || ''));
+    if (st && verifyPassword(password, st.pass_hash)) claim = { adm: 'staff', sid: st.id };
+  }
+  if (!claim) {
     const n = (f && f.until <= Date.now() ? 0 : (f ? f.n : 0)) + 1;
     adminFails.set(ip, { n, until: n >= 5 ? Date.now() + 15 * 60 * 1000 : 0 });
+    if (!config.adminPassword && !db.prepare('SELECT 1 FROM staff_users LIMIT 1').get()) throw new HttpError(503, 'Admin login is not set up on the server.', 'admin_disabled');
     throw new HttpError(401, 'Wrong username or password.', 'admin_wrong');
   }
   adminFails.delete(ip);
-  const token = jwt.sign({ adm: 1 }, config.jwtSecret, { expiresIn: '12h' });
+  const token = jwt.sign(claim, config.jwtSecret, { expiresIn: '12h' });
   res.cookie(ADMIN_COOKIE, token, { httpOnly: true, secure: config.isProd, sameSite: 'lax', maxAge: 12 * 3600 * 1000, path: '/' });
 }
 function clearAdmin(res) { res.clearCookie(ADMIN_COOKIE, { path: '/' }); res.clearCookie(ACT_COOKIE, { path: '/' }); }
-// Admin opens a contractor or worker portal as that account.
+// Admin opens a worker or builder portal as that account.
 function setActAs(res, userId) {
   res.cookie(ACT_COOKIE, jwt.sign({ uid: userId }, config.jwtSecret, { expiresIn: '12h' }), { httpOnly: true, secure: config.isProd, sameSite: 'lax', maxAge: 12 * 3600 * 1000, path: '/' });
 }
@@ -74,20 +106,33 @@ function loadUser(req, _res, next) {
   if (token) {
     try {
       const { uid } = jwt.verify(token, config.jwtSecret);
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
+      const user = db.prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL').get(uid);
       if (user) { user.isAdmin = isAdminPhone(user.phone); req.user = user; }
     } catch (_) { /* expired or tampered cookie: treat as signed out */ }
   }
+  // req.admin = { root, staffId, name, perms } for the main admin or a supervisor
   const adm = req.cookies && req.cookies[ADMIN_COOKIE];
-  if (adm && config.adminPassword) {
-    try { if (jwt.verify(adm, config.jwtSecret).adm === 1) req.adminSession = true; } catch (_) { /* expired */ }
+  if (adm) {
+    try {
+      const c = jwt.verify(adm, config.jwtSecret);
+      if (c.adm === 'root' && config.adminPassword) req.admin = { root: true, staffId: null, name: 'Admin', perms: ALL_PERMS };
+      if (c.adm === 'staff') {
+        const st = db.prepare('SELECT s.*, g.perms AS gperms, g.name AS gname FROM staff_users s LEFT JOIN staff_groups g ON g.id = s.group_id WHERE s.id = ? AND s.active = 1').get(c.sid);
+        if (st) {
+          let perms = []; try { perms = JSON.parse(st.gperms || '[]').filter(p => ALL_PERMS.includes(p)); } catch (_) { perms = []; }
+          req.admin = { root: false, staffId: st.id, name: st.name, group: st.gname || '', perms };
+        }
+      }
+    } catch (_) { /* expired */ }
   }
+  if (!req.admin && req.user && req.user.isAdmin) req.admin = { root: true, staffId: null, name: 'Admin', perms: ALL_PERMS };
+  req.adminSession = Boolean(req.admin);
   const act = req.cookies && req.cookies[ACT_COOKIE];
-  if (act && (req.adminSession || (req.user && req.user.isAdmin))) {
+  if (act && req.admin && req.admin.perms.includes('open_portals')) {
     try {
       const { uid } = jwt.verify(act, config.jwtSecret);
-      const target = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
-      if (target) { target.isAdmin = true; target.actingAs = true; req.adminSession = true; req.user = target; }
+      const target = db.prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL').get(uid);
+      if (target) { target.isAdmin = true; target.actingAs = true; req.user = target; }
     } catch (_) { /* expired */ }
   }
   next();
@@ -101,10 +146,22 @@ function requireRole(role) {
   };
 }
 function requireAdmin(req, _res, next) {
-  if (req.adminSession) return next();
+  if (req.admin) return next();
   if (!req.user) return next(new HttpError(401, 'Please sign in.', 'signed_out'));
-  if (!req.user.isAdmin) return next(new HttpError(403, 'Admin access only.', 'not_admin'));
+  next(new HttpError(403, 'Admin access only.', 'not_admin'));
+}
+function requirePerm(perm) {
+  return (req, _res, next) => {
+    if (!req.admin) return next(new HttpError(401, 'Please sign in.', 'signed_out'));
+    if (req.admin.root || req.admin.perms.includes(perm)) return next();
+    next(new HttpError(403, 'You do not have permission for this.', 'no_permission'));
+  };
+}
+function requireRoot(req, _res, next) {
+  if (!req.admin) return next(new HttpError(401, 'Please sign in.', 'signed_out'));
+  if (!req.admin.root) return next(new HttpError(403, 'Only the main admin can do this.', 'not_root'));
   next();
 }
 
-module.exports = { issueOtp, checkOtp, setSession, clearSession, loadUser, requireUser, requireRole, requireAdmin, isAdminPhone, adminLogin, clearAdmin, setActAs, clearActAs };
+module.exports = { issueOtp, checkOtp, setSession, clearSession, loadUser, requireUser, requireRole, requireAdmin, isAdminPhone, adminLogin, clearAdmin, setActAs, clearActAs,
+  requirePerm, requireRoot, hashPassword, verifyPassword, PERMS, ALL_PERMS };

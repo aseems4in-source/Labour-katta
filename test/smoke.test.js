@@ -101,8 +101,8 @@ async function testPay(call, payment) {
 
     // ---- booking (plan active → no job fee) ----
     const bk = await con('POST', '/api/contractor/bookings', { skillId: 's02', count: 2, days: 5, level: 'any', qc: true, payMode: 'lk', site: 'Site 14, Thane West', startDate: start });
-    // (1000 + 150) * 2 * 5 + 500 * 5 + 0 job fee = 14000
-    assert.strictEqual(bk.payment.amount, 14000);
+    // (1000 + 150) * 2 * 5 + 500 * 5 + 0 job fee + ₹20 platform fee × 2 = 14040
+    assert.strictEqual(bk.payment.amount, 14040);
     assert.deepStrictEqual((await w1('GET', '/api/worker/jobs')).jobs, [], 'unpaid booking is hidden');
     await testPay(con, bk.payment);
 
@@ -125,6 +125,10 @@ async function testPay(call, payment) {
     let list = (await con('GET', '/api/contractor/bookings')).bookings;
     assert.strictEqual(list[0].status, 'assigned'); assert.strictEqual(list[0].team.length, 2);
 
+    // attendance only on working days of the booking; check-in too
+    await assert.rejects(con('POST', `/api/contractor/bookings/${bk.bookingId}/attendance`, { workerId: w2id, status: 'absent' }), e => e.body.code === 'bad_date', 'no attendance before the job starts');
+    await assert.rejects(w1('POST', `/api/worker/work/${bk.bookingId}/checkin`), e => e.status === 400, 'no check-in before the job starts');
+    require('../src/db').db.prepare('UPDATE bookings SET start_date = ? WHERE id = ?').run(todayIST(0), bk.bookingId);
     // attendance + replacement
     await con('POST', `/api/contractor/bookings/${bk.bookingId}/attendance`, { workerId: w2id, status: 'absent' });
     await con('POST', `/api/contractor/bookings/${bk.bookingId}/replace`, { workerId: w2id });
@@ -132,12 +136,27 @@ async function testPay(call, payment) {
     list = (await con('GET', '/api/contractor/bookings')).bookings;
     assert.deepStrictEqual(list[0].team.map(t => t.name).sort(), ['Ramesh Patil', 'Sunil Jadhav']);
 
+    // check-in only on working days; wages come from attendance
+    await w1('POST', `/api/worker/work/${bk.bookingId}/checkin`);
+    let wk = (await w1('GET', '/api/worker/work')).work.find(x => x.id === bk.bookingId);
+    assert.ok(wk.checkin && wk.onSiteToday, 'worker checked in');
+    list = (await con('GET', '/api/contractor/bookings')).bookings;
+    const tm = list.find(x => x.id === bk.bookingId).team.find(t => t.name === 'Ramesh Patil');
+    assert.ok(tm.checkin, 'builder sees the check-in'); assert.strictEqual(tm.v.phone, 1);
+    await con('POST', `/api/contractor/bookings/${bk.bookingId}/attendance`, { workerId: tm.worker_id, status: 'present' });
+    wk = (await w1('GET', '/api/worker/work')).work.find(x => x.id === bk.bookingId);
+    assert.strictEqual(wk.pay.payDays, 1); assert.strictEqual(wk.pay.earned, wk.wage, 'one day of wages earned');
+    require('../src/db').db.prepare('UPDATE bookings SET start_date = ? WHERE id = ?').run(start, bk.bookingId);
+
     // gold job + custom wage, direct pay
     const bk2 = await con('POST', '/api/contractor/bookings', { skillId: skill.id, count: 1, days: 3, level: 'gold', qc: false, payMode: 'direct', site: 'Site 9, Airoli', startDate: todayIST(10) });
-    assert.strictEqual(bk2.paid, true, 'no payment needed');
+    assert.strictEqual(bk2.payment.amount, 20, 'direct pay still has the ₹20 platform fee');
+    await testPay(con, bk2.payment);
     assert.strictEqual((await w1('GET', '/api/worker/jobs')).jobs.length, 0, 'gold-only job hidden from bronze worker');
     const w1id = (await w1('GET', '/api/me')).user.id;
     await admin('PATCH', `/api/admin/workers/${w1id}`, { tier: 'gold', custom_wage: 1300 });
+    assert.strictEqual((await w1('GET', '/api/worker/jobs')).jobs.length, 0, 'admin cannot raise a level above the records');
+    require('../src/db').db.prepare("UPDATE workers SET tier = 'gold' WHERE user_id = ?").run(w1id); // stand-in for an earned Gold (tested later)
     const goldJobs = (await w1('GET', '/api/worker/jobs')).jobs;
     assert.strictEqual(goldJobs.length, 1); assert.strictEqual(goldJobs[0].wage, 1300);
     await w1('POST', `/api/worker/jobs/${bk2.bookingId}/accept`);
@@ -147,8 +166,8 @@ async function testPay(call, payment) {
     const ord = await con('POST', '/api/contractor/bookings', {
       lines: [{ skillId: 's01', count: 2 }, { skillId: 's15', count: 3 }, { skillId: 's01', count: 0 }],
       days: 3, level: 'any', qc: true, payMode: 'lk', site: 'Site 21', siteAddress: 'Plot 4, Wagle Estate, Thane West', siteLat: 19.2, siteLng: 72.96, startDate: start });
-    // Mason (900+150)*2*3 = 6300; Helper (600+150)*3*3 = 6750; QC once 500*3 = 1500; no job fee on plan
-    assert.strictEqual(ord.payment.amount, 14550);
+    // Mason (900+150)*2*3 = 6300; Helper (600+150)*3*3 = 6750; QC once 500*3 = 1500; no job fee on plan; platform fee 20*5 = 100
+    assert.strictEqual(ord.payment.amount, 14650);
     assert.strictEqual(ord.bookingIds.length, 2);
     await testPay(con, ord.payment);
     let mine = (await con('GET', '/api/contractor/bookings')).bookings.filter(b => b.group_id === ord.groupId);
@@ -163,6 +182,9 @@ async function testPay(call, payment) {
     assert.strictEqual(counts.s02, 3, 'all three RCC workers free later');
     assert.strictEqual((await con('GET', `/api/contractor/availability?start=${start}&days=2&level=any`)).counts.s02, 1, 'only Imran is free on the busy dates');
     const pick = await con('POST', '/api/contractor/bookings', { lines: [{ skillId: 's02', count: 2 }], days: 2, payMode: 'direct', site: 'Site 30', startDate: later });
+    assert.strictEqual(pick.payment.amount, 40);
+    assert.deepStrictEqual((await con('GET', `/api/contractor/bookings/${pick.bookingId}/available-workers`)).workers, [], 'unpaid order cannot pick workers');
+    await testPay(con, pick.payment);
     let avail = (await con('GET', `/api/contractor/bookings/${pick.bookingId}/available-workers`)).workers;
     assert.strictEqual(avail.length, 3); assert.strictEqual(avail[0].name, 'Ramesh Patil', 'gold worker listed first');
     assert.ok(!('phone' in avail[0]), 'phone hidden before selection');
@@ -183,6 +205,7 @@ async function testPay(call, payment) {
     assert.deepStrictEqual(avail.map(w => w.name), ['Ramesh Patil']);
     // a worker on overlapping dates does not see the job
     const clash = await con('POST', '/api/contractor/bookings', { lines: [{ skillId: 's02', count: 1 }], days: 1, payMode: 'direct', site: 'Clash', startDate: later });
+    await testPay(con, clash.payment);
     assert.ok(!(await w3('GET', '/api/worker/jobs')).jobs.some(j => j.id === clash.bookingId), 'busy worker not offered overlapping job');
 
     // ---- second contractor: special price and free trial from admin ----
@@ -194,7 +217,8 @@ async function testPay(call, payment) {
     assert.strictEqual((await con2('POST', '/api/contractor/plan')).payment.amount, 299, 'special price used');
     await admin('POST', `/api/admin/contractors/${c2id}/trial`, { days: 14 });
     assert.strictEqual((await con2('GET', '/api/me')).contractor.access, true);
-    await con2('POST', '/api/contractor/bookings', { skillId: 's01', count: 1, days: 1, level: 'any', qc: false, payMode: 'direct', site: 'Kalyan site', startDate: start });
+    const c2b = await con2('POST', '/api/contractor/bookings', { skillId: 's01', count: 1, days: 1, level: 'any', qc: false, payMode: 'direct', site: 'Kalyan site', startDate: start });
+    await testPay(con2, c2b.payment);
 
     // ---- admin opens contractor and worker portals ----
     await admin('POST', '/api/admin/act-as', { userId: c2id });
@@ -212,9 +236,97 @@ async function testPay(call, payment) {
     // ---- messages ----
     outbox = (await admin('GET', '/api/admin/notifications')).notifications;
     const kinds = new Set(outbox.map(n => n.template));
-    for (const k of ['bookingReceived', 'teamReady', 'jobConfirmed', 'jobOffer', 'replacement', 'planStarted', 'membershipStarted']) assert.ok(kinds.has(k), 'outbox has ' + k);
+    for (const k of ['bookingReceived', 'teamReady', 'jobConfirmed', 'jobOffer', 'replacement', 'planStarted', 'membershipStarted', 'workerAssigned', 'workerCheckin']) assert.ok(kinds.has(k), 'outbox has ' + k);
     assert.ok(outbox.every(n => n.status === 'test'));
     assert.ok((await con('GET', '/api/messages')).messages.some(m => /Your team is ready/.test(m.body)));
+
+    // ---- login by number: no portal needed for registered numbers ----
+    const back = client(base);
+    let o = await back('POST', '/api/auth/request-otp', { phone: '9876500003' });
+    await back('POST', '/api/auth/verify-otp', { phone: '9876500003', code: o.devCode });
+    assert.strictEqual((await back('GET', '/api/me')).user.role, 'worker', 'number opens the worker screen');
+    const stranger = client(base);
+    o = await stranger('POST', '/api/auth/request-otp', { phone: '9123456780' });
+    await assert.rejects(stranger('POST', '/api/auth/verify-otp', { phone: '9123456780', code: o.devCode }), e => e.status === 404 && /sign up/i.test(e.message));
+
+    // ---- coupons ----
+    await admin('PUT', '/api/admin/settings', { platform_fee_per_worker: 25 });
+    assert.strictEqual((await admin('GET', '/api/me')).settings.platform_fee_per_worker, 25);
+    await admin('PUT', '/api/admin/settings', { platform_fee_per_worker: 20 });
+    await admin('POST', '/api/admin/coupons', { code: 'build50', applies_to: 'builder', kind: 'percent', value: 50, max_uses: 2 });
+    await admin('POST', '/api/admin/coupons', { code: 'FREE30', applies_to: 'worker', kind: 'days', value: 30 });
+    await assert.rejects(admin('POST', '/api/admin/coupons', { code: 'BUILD50', kind: 'flat', value: 10 }), e => e.status === 400, 'duplicate code');
+    const cb = client(base);
+    await login(cb, '9876543212', 'contractor');
+    await assert.rejects(cb('POST', '/api/contractor/profile', { company: 'X', coupon: 'FREE30' }), e => /only for workers/.test(e.message));
+    await assert.rejects(cb('POST', '/api/contractor/profile', { company: 'X', coupon: 'NOPE' }), e => /not valid/.test(e.message));
+    assert.strictEqual((await cb('GET', '/api/me')).contractor, null, 'nothing saved when the coupon is wrong');
+    const cr = await cb('POST', '/api/contractor/profile', { company: 'Om Infra', coupon: 'build50' });
+    assert.strictEqual(cr.coupon.label, '50% off');
+    me = await cb('GET', '/api/me');
+    assert.strictEqual(me.contractor.planPrice, 300); assert.strictEqual(me.contractor.coupon.code, 'BUILD50');
+    await assert.rejects(cb('POST', '/api/coupon/apply', { code: 'BUILD50' }), e => /already used/.test(e.message));
+    const cw = client(base);
+    await login(cw, '9876500009', 'worker');
+    await cw('POST', '/api/worker/profile', { name: 'Raju', skills: ['s15'], coupon: 'free30' });
+    assert.strictEqual((await cw('GET', '/api/me')).worker.access, true, '30 free days from coupon');
+    const coupons = (await admin('GET', '/api/admin/coupons')).coupons;
+    assert.strictEqual(coupons.find(c => c.code === 'BUILD50').uses, 1);
+
+    // ---- admin adds, edits and deletes profiles ----
+    const nw = await admin('POST', '/api/admin/workers', { phone: '9876500010', name: 'Kiran', area: 'Dombivli', experience: '1-3', skills: ['s15', 's16'] });
+    await assert.rejects(admin('POST', '/api/admin/workers', { phone: '9876500010', name: 'Dup', skills: ['s15'] }), e => /already registered/.test(e.message));
+    await admin('PATCH', `/api/admin/workers/${nw.id}`, { name: 'Kiran More', skills: ['s15'], phone: '9876500011' });
+    let wl = (await admin('GET', '/api/admin/workers')).workers.find(w => w.user_id === nw.id);
+    assert.strictEqual(wl.name, 'Kiran More'); assert.deepStrictEqual(wl.skills, ['s15']); assert.strictEqual(wl.phone, '9876500011');
+    const kiran = client(base);
+    o = await kiran('POST', '/api/auth/request-otp', { phone: '9876500011' });
+    await kiran('POST', '/api/auth/verify-otp', { phone: '9876500011', code: o.devCode });
+    assert.strictEqual((await kiran('GET', '/api/me')).worker.name, 'Kiran More', 'admin-created worker can log in');
+    const nb = await admin('POST', '/api/admin/contractors', { phone: '9876543213', company: 'Shiv Developers', coupon: 'BUILD50' });
+    await admin('PATCH', `/api/admin/contractors/${nb.id}`, { company: 'Shiv Developers Pvt Ltd' });
+    assert.ok((await admin('GET', '/api/admin/contractors')).contractors.some(c => c.company === 'Shiv Developers Pvt Ltd' && c.coupon === 'BUILD50'));
+    await assert.rejects(admin('POST', '/api/admin/contractors', { phone: '9876543214', company: 'Z', coupon: 'BUILD50' }), e => /fully used/.test(e.message));
+    // deleting a worker on a job frees the place; their number can sign up again
+    const del = await admin('DELETE', `/api/admin/workers/${w3id}`);
+    assert.ok(del.reopened >= 1);
+    assert.ok(!(await admin('GET', '/api/admin/workers')).workers.some(w => w.user_id === w3id));
+    await assert.rejects(w3('GET', '/api/worker/jobs'), e => e.status === 401, 'deleted worker is signed out');
+    const again = client(base);
+    await login(again, '9876500003', 'worker');
+    assert.strictEqual((await again('GET', '/api/me')).worker, null, 'fresh sign-up after delete');
+    await admin('DELETE', `/api/admin/contractors/${nb.id}`);
+    assert.ok(!(await admin('GET', '/api/admin/contractors')).contractors.some(c => c.user_id === nb.id));
+
+    // ---- supervisor groups, permissions and workload ----
+    const grp = await admin('POST', '/api/admin/staff/groups', { name: 'Site supervisors', perms: ['bookings', 'workers', 'bogus'] });
+    let staff = await admin('GET', '/api/admin/staff');
+    assert.deepStrictEqual(staff.groups[0].perms, ['bookings', 'workers']);
+    const sup = await admin('POST', '/api/admin/staff/users', { name: 'Suresh K', username: 'suresh', password: 'site-pass-1', group_id: grp.id });
+    await assert.rejects(admin('POST', '/api/admin/staff/users', { name: 'X', username: 'suresh', password: 'site-pass-1' }), e => /taken/.test(e.message));
+    await admin('POST', `/api/admin/bookings/${bk.bookingId}/supervisor`, { staffId: sup.id });
+    const sc = client(base);
+    await assert.rejects(sc('POST', '/api/auth/admin-login', { username: 'suresh', password: 'wrong-pass' }), e => e.status === 401);
+    await sc('POST', '/api/auth/admin-login', { username: 'Suresh', password: 'site-pass-1' });
+    me = await sc('GET', '/api/me');
+    assert.strictEqual(me.admin.root, false); assert.strictEqual(me.admin.name, 'Suresh K');
+    const mw = (await sc('GET', '/api/admin/my-work')).bookings;
+    assert.ok(mw.some(b => b.id === bk.bookingId)); assert.ok(mw[0].team.length >= 1);
+    await assert.rejects(sc('POST', `/api/admin/my-work/${bk.bookingId}/attendance`, { workerId: w1id, status: 'present' }), e => e.body.code === 'bad_date', 'job has not started');
+    await sc('POST', `/api/admin/my-work/${bk.bookingId}/attendance`, { workerId: w1id, status: 'present', date: todayIST(0) }).catch(e => assert.strictEqual(e.body.code, 'bad_date'));
+    require('../src/db').db.prepare('UPDATE bookings SET start_date = ? WHERE id = ?').run(todayIST(0), bk.bookingId);
+    await sc('POST', `/api/admin/my-work/${bk.bookingId}/attendance`, { workerId: w1id, status: 'present' });
+    require('../src/db').db.prepare('UPDATE bookings SET start_date = ? WHERE id = ?').run(start, bk.bookingId);
+    await sc('GET', '/api/admin/workers');
+    await assert.rejects(sc('PUT', '/api/admin/settings', { job_fee: 1 }), e => e.status === 403, 'no pricing permission');
+    await assert.rejects(sc('GET', '/api/admin/staff'), e => e.status === 403, 'only main admin manages staff');
+    await assert.rejects(sc('POST', '/api/admin/act-as', { userId: w1id }), e => e.status === 403);
+    await admin('PATCH', `/api/admin/staff/groups/${grp.id}`, { perms: ['bookings', 'pricing'] });
+    await sc('PUT', '/api/admin/settings', { job_fee: 99 });
+    staff = await admin('GET', '/api/admin/staff');
+    assert.strictEqual(staff.users[0].workload, 1);
+    await admin('PATCH', `/api/admin/staff/users/${sup.id}`, { active: false });
+    await assert.rejects(sc('GET', '/api/admin/overview'), e => e.status === 401, 'deactivated supervisor is signed out');
 
     // validation and security
     await assert.rejects(con('POST', '/api/contractor/bookings', { skillId: 's02', count: 0, days: 5, payMode: 'lk', site: 'x', startDate: start }), e => e.status === 400);

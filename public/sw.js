@@ -1,5 +1,5 @@
 // Service worker: makes the app installable and loads the app shell fast. API calls always go to the network.
-const CACHE = 'lk-shell-v2';
+const CACHE = 'lk-shell-v4';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/i18n.js', '/icon.svg', '/icon-192.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

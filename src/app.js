@@ -39,6 +39,7 @@ function createApp() {
   app.use('/api', require('./routes/account'));
   app.use('/api', payments.router);
   app.use('/api', require('./routes/work'));
+  app.use('/api', require('./routes/more'));
   app.use('/api/admin', require('./routes/admin'));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found', code: 'not_found' }));
 

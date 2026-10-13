@@ -71,3 +71,26 @@ Parameters: {{1}} = worker, {{2}} = site
 - **mr**: लेबर कट्टा ॲडमिन: {{1}} यांनी {{2}} चे थेट पेमेंट न मिळाल्याची तक्रार केली. कृपया ठेकेदाराला कॉल करा.
 
 Template names can be changed with the WA_TPL_* environment variables (see .env.example).
+
+## New templates (October update)
+
+Create these as **Utility** templates in en, hi and mr. The text for each language is in `src/services/messages.js`.
+
+| Template name | Sent to | When | Variables in order |
+|---|---|---|---|
+| lk_worker_assigned | Builder | Each worker is assigned | name, skill, site, filled, total |
+| lk_worker_checkin | Builder | Worker taps "I have reached the site" | name, site, time |
+| lk_worker_cancelled | Builder | Worker says they can't come | name, site |
+| lk_booking_cancelled | Worker | Builder cancels, or admin deletes the builder | site, date, company |
+
+Until these are approved, the app still records the messages in the WhatsApp outbox and in the app's Messages tab.
+
+## Phase 2 templates
+
+| Template name | Sent to | When | Variables in order |
+|---|---|---|---|
+| lk_job_reminder | Worker | Evening before the job (admin sets the hour) | site, date, time, address |
+| lk_not_confirmed | Builder | Worker hasn't tapped "I will come" by reporting time minus N hours | name, site, time |
+| lk_site_notice | Workers on a site | Builder/supervisor sends an urgent message | company, site, text |
+| lk_wages_final | Worker | Builder finalises wages | site, days, amount |
+| lk_urgent_report | Admin phones + site supervisor | Urgent report or accident | category, from, text |

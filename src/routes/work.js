@@ -65,12 +65,30 @@ r.post('/contractor/bookings/:id/cancel', auth.requireRole('contractor'), (req, 
   res.json({ ok: true, refundNeeded: b.payment_status === 'paid' });
 });
 
+// Workers free for this booking line (contractor picks by name).
+r.get('/contractor/bookings/:id/available-workers', auth.requireRole('contractor'), (req, res) => {
+  const b = ownBooking(req);
+  res.json({ workers: b.status === 'open' ? domain.availableWorkers(b) : [], needed: b.count - domain.activeCount(b.id) });
+});
+r.post('/contractor/bookings/:id/select', auth.requireRole('contractor'), async (req, res) => {
+  const out = await domain.selectWorker(req.user.id, req.params.id, String(req.body.workerId || ''));
+  res.json(Object.assign({ ok: true }, out));
+});
+// How many workers are free per skill for these dates (shown on the booking form).
+r.get('/contractor/availability', auth.requireRole('contractor'), (req, res) => {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.start || '')) ? String(req.query.start) : todayIST(1);
+  const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 1));
+  const level = ['any', 'silver', 'gold'].includes(req.query.level) ? req.query.level : 'any';
+  res.json({ counts: domain.availabilityCounts(start, days, level) });
+});
+
 // ---------- worker ----------
 r.get('/worker/jobs', auth.requireRole('worker'), (req, res) => {
   const w = domain.getWorker(req.user.id);
   if (!w) return res.json({ jobs: [] });
   const jobs = domain.eligibleJobs(w).map(b => ({
     id: b.id, skill_en: b.skill_en, skill_hi: b.skill_hi, skill_mr: b.skill_mr, site: b.site, start_date: b.start_date, days: b.days,
+    site_address: b.site_address, site_lat: b.site_lat, site_lng: b.site_lng,
     pay_mode: b.pay_mode, company: b.company, wage: domain.workerDailyWage(w, b), needed: b.count - domain.activeCount(b.id),
   }));
   res.json({ jobs });
@@ -89,8 +107,18 @@ r.get('/worker/work', auth.requireRole('worker'), (req, res) => {
     WHERE a.worker_id = ? AND a.status = 'active' AND b.status != 'cancelled' ORDER BY b.start_date DESC LIMIT 200`).all(w.user_id);
   res.json({ work: rows.map(b => ({
     id: b.id, skill_en: b.skill_en, skill_hi: b.skill_hi, skill_mr: b.skill_mr, site: b.site, start_date: b.start_date, days: b.days,
+    site_address: b.site_address, site_lat: b.site_lat, site_lng: b.site_lng,
     pay_mode: b.pay_mode, company: b.company, contractor_phone: b.contractor_phone, wage: domain.workerDailyWage(w, b), paid_confirmation: b.paid_confirmation,
   })) });
+});
+
+r.post('/worker/availability', auth.requireRole('worker'), (req, res) => {
+  db.prepare('UPDATE workers SET available = ? WHERE user_id = ?').run(req.body.available ? 1 : 0, req.user.id);
+  res.json({ ok: true });
+});
+r.post('/worker/work/:id/decline', auth.requireRole('worker'), async (req, res) => {
+  await domain.declineJob(req.user.id, req.params.id);
+  res.json({ ok: true });
 });
 
 r.post('/worker/work/:id/paid', auth.requireRole('worker'), async (req, res) => {

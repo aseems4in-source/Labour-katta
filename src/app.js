@@ -17,7 +17,7 @@ function createApp() {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", 'https://checkout.razorpay.com', 'https://*.razorpay.com'],
-        frameSrc: ['https://api.razorpay.com', 'https://checkout.razorpay.com', 'https://*.razorpay.com'],
+        frameSrc: ['https://api.razorpay.com', 'https://checkout.razorpay.com', 'https://*.razorpay.com', 'https://www.google.com', 'https://maps.google.com'],
         connectSrc: ["'self'", 'https://*.razorpay.com'],
         imgSrc: ["'self'", 'data:', 'https://*.razorpay.com'],
         styleSrc: ["'self'", 'https://fonts.googleapis.com', "'unsafe-inline'"],
@@ -42,7 +42,11 @@ function createApp() {
   app.use('/api/admin', require('./routes/admin'));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found', code: 'not_found' }));
 
-  app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: config.isProd ? '1h' : 0, index: 'index.html' }));
+  // Always check for a newer version of the app files (cheap thanks to ETags), so updates show immediately.
+  app.use(express.static(path.join(__dirname, '..', 'public'), {
+    index: 'index.html',
+    setHeaders: (res, file) => { res.setHeader('Cache-Control', /\.(png|svg)$/.test(file) ? 'public, max-age=86400' : 'no-cache'); },
+  }));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
   // eslint-disable-next-line no-unused-vars

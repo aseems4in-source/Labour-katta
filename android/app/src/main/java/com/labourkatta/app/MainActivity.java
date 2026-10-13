@@ -1,14 +1,17 @@
 package com.labourkatta.app;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.GeolocationPermissions;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -27,6 +30,9 @@ import java.net.URISyntaxException;
 public class MainActivity extends Activity {
 
     private WebView webView;
+    private static final int REQ_LOCATION = 41;
+    private String geoOrigin;
+    private GeolocationPermissions.Callback geoCallback;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -44,13 +50,31 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
         s.setMediaPlaybackRequiresUserGesture(true);
+        s.setGeolocationEnabled(true);
         s.setUserAgentString(s.getUserAgentString() + " LabourKattaApp/" + BuildConfig.VERSION_NAME);
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
 
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                // Only our own site may ask for the location.
+                Uri o = Uri.parse(origin);
+                if (o.getHost() == null || !o.getHost().equalsIgnoreCase(BuildConfig.APP_HOST)) {
+                    callback.invoke(origin, false, false);
+                    return;
+                }
+                if (hasLocationPermission()) {
+                    callback.invoke(origin, true, false);
+                } else {
+                    geoOrigin = origin;
+                    geoCallback = callback;
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+                }
+            }
+        });
         webView.setWebViewClient(new LkClient());
 
         if (savedInstanceState != null) {
@@ -116,6 +140,21 @@ public class MainActivity extends Activity {
             if (request.isForMainFrame()) {
                 view.loadDataWithBaseURL(null, OfflinePage.html(BuildConfig.APP_URL), "text/html", "utf-8", null);
             }
+        }
+    }
+
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_LOCATION && geoCallback != null) {
+            geoCallback.invoke(geoOrigin, hasLocationPermission(), false);
+            geoCallback = null;
+            geoOrigin = null;
         }
     }
 

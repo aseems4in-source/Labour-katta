@@ -78,8 +78,8 @@ async function testPay(call, payment) {
     await login(w1, '9876500001', 'worker');
     const wrongPortal = async (phone, portal) => { const c = client(base); const o = await c('POST', '/api/auth/request-otp', { phone }); return c('POST', '/api/auth/verify-otp', { phone, portal, code: o.devCode }); };
     await new Promise(r => setTimeout(r, 0));
-    await assert.rejects(wrongPortal('9876500001', 'contractor'), e => e.status === 403 && /Worker portal/.test(e.message));
-    await assert.rejects(wrongPortal('9876543210', 'worker'), e => e.status === 403 && /Contractor portal/.test(e.message));
+    await assert.rejects(wrongPortal('9876500001', 'contractor'), e => e.status === 403 && /Login as Worker/.test(e.message));
+    await assert.rejects(wrongPortal('9876543210', 'worker'), e => e.status === 403 && /Login as Builder/.test(e.message));
     await assert.rejects(w1('GET', '/api/contractor/bookings'), e => e.status === 403);
 
     // ---- workers ----
@@ -133,7 +133,7 @@ async function testPay(call, payment) {
     assert.deepStrictEqual(list[0].team.map(t => t.name).sort(), ['Ramesh Patil', 'Sunil Jadhav']);
 
     // gold job + custom wage, direct pay
-    const bk2 = await con('POST', '/api/contractor/bookings', { skillId: skill.id, count: 1, days: 3, level: 'gold', qc: false, payMode: 'direct', site: 'Site 9, Airoli', startDate: start });
+    const bk2 = await con('POST', '/api/contractor/bookings', { skillId: skill.id, count: 1, days: 3, level: 'gold', qc: false, payMode: 'direct', site: 'Site 9, Airoli', startDate: todayIST(10) });
     assert.strictEqual(bk2.paid, true, 'no payment needed');
     assert.strictEqual((await w1('GET', '/api/worker/jobs')).jobs.length, 0, 'gold-only job hidden from bronze worker');
     const w1id = (await w1('GET', '/api/me')).user.id;
@@ -142,6 +142,48 @@ async function testPay(call, payment) {
     assert.strictEqual(goldJobs.length, 1); assert.strictEqual(goldJobs[0].wage, 1300);
     await w1('POST', `/api/worker/jobs/${bk2.bookingId}/accept`);
     await w1('POST', `/api/worker/work/${bk2.bookingId}/paid`, { received: false });
+
+    // ---- one order with skilled and unskilled lines, site address and map pin ----
+    const ord = await con('POST', '/api/contractor/bookings', {
+      lines: [{ skillId: 's01', count: 2 }, { skillId: 's15', count: 3 }, { skillId: 's01', count: 0 }],
+      days: 3, level: 'any', qc: true, payMode: 'lk', site: 'Site 21', siteAddress: 'Plot 4, Wagle Estate, Thane West', siteLat: 19.2, siteLng: 72.96, startDate: start });
+    // Mason (900+150)*2*3 = 6300; Helper (600+150)*3*3 = 6750; QC once 500*3 = 1500; no job fee on plan
+    assert.strictEqual(ord.payment.amount, 14550);
+    assert.strictEqual(ord.bookingIds.length, 2);
+    await testPay(con, ord.payment);
+    let mine = (await con('GET', '/api/contractor/bookings')).bookings.filter(b => b.group_id === ord.groupId);
+    assert.strictEqual(mine.length, 2); assert.ok(mine.every(b => b.status === 'open' && b.payment_status === 'paid'));
+    assert.strictEqual(mine.filter(b => b.qc_cost > 0).length, 1, 'quality in-charge charged once');
+    assert.strictEqual(mine[0].site_address, 'Plot 4, Wagle Estate, Thane West'); assert.strictEqual(mine[0].site_lat, 19.2);
+    await assert.rejects(con('POST', '/api/contractor/bookings', { lines: [{ skillId: 's01', count: 0 }], days: 1, payMode: 'lk', site: 'x', startDate: start }), e => e.status === 400);
+
+    // ---- contractor chooses available workers by name ----
+    const later = todayIST(20);
+    const counts = (await con('GET', `/api/contractor/availability?start=${later}&days=2&level=any`)).counts;
+    assert.strictEqual(counts.s02, 3, 'all three RCC workers free later');
+    assert.strictEqual((await con('GET', `/api/contractor/availability?start=${start}&days=2&level=any`)).counts.s02, 1, 'only Imran is free on the busy dates');
+    const pick = await con('POST', '/api/contractor/bookings', { lines: [{ skillId: 's02', count: 2 }], days: 2, payMode: 'direct', site: 'Site 30', startDate: later });
+    let avail = (await con('GET', `/api/contractor/bookings/${pick.bookingId}/available-workers`)).workers;
+    assert.strictEqual(avail.length, 3); assert.strictEqual(avail[0].name, 'Ramesh Patil', 'gold worker listed first');
+    assert.ok(!('phone' in avail[0]), 'phone hidden before selection');
+    await w2('POST', '/api/worker/availability', { available: false });
+    avail = (await con('GET', `/api/contractor/bookings/${pick.bookingId}/available-workers`)).workers;
+    assert.ok(!avail.some(w => w.worker_id === w2id), 'unavailable worker hidden');
+    await assert.rejects(con('POST', `/api/contractor/bookings/${pick.bookingId}/select`, { workerId: w2id }), e => e.status === 409);
+    await w2('POST', '/api/worker/availability', { available: true });
+    await con('POST', `/api/contractor/bookings/${pick.bookingId}/select`, { workerId: w2id });
+    assert.strictEqual((await con('POST', `/api/contractor/bookings/${pick.bookingId}/select`, { workerId: w3id })).full, true);
+    assert.ok((await w2('GET', '/api/worker/work')).work.some(j => j.id === pick.bookingId), 'selected job shows in worker My work');
+    await assert.rejects(w1('POST', `/api/contractor/bookings/${pick.bookingId}/select`, { workerId: w1id }), e => e.status === 403);
+    // worker can't go → place reopens and is offered again
+    await w2('POST', `/api/worker/work/${pick.bookingId}/decline`);
+    let pk = (await con('GET', '/api/contractor/bookings')).bookings.find(b => b.id === pick.bookingId);
+    assert.strictEqual(pk.status, 'open'); assert.strictEqual(pk.team.length, 1);
+    avail = (await con('GET', `/api/contractor/bookings/${pick.bookingId}/available-workers`)).workers;
+    assert.deepStrictEqual(avail.map(w => w.name), ['Ramesh Patil']);
+    // a worker on overlapping dates does not see the job
+    const clash = await con('POST', '/api/contractor/bookings', { lines: [{ skillId: 's02', count: 1 }], days: 1, payMode: 'direct', site: 'Clash', startDate: later });
+    assert.ok(!(await w3('GET', '/api/worker/jobs')).jobs.some(j => j.id === clash.bookingId), 'busy worker not offered overlapping job');
 
     // ---- second contractor: special price and free trial from admin ----
     await login(con2, '9876543211', 'contractor');
@@ -188,4 +230,4 @@ async function testPay(call, payment) {
     server.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
-})().catch(e => { console.error('✘ smoke test failed:', e.message, e.body || ''); process.exit(1); });
+})().catch(e => { console.error('✘ smoke test failed:', e.message, e.body || '', (e.stack||'').split('\n').find(l => l.includes('smoke.test'))); process.exit(1); });

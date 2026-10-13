@@ -15,10 +15,10 @@ const S = {
   me: null, lang: store('lang') || 'en', view: store('view') || 'app',
   ctab: 'home', wtab: 'jobs', atab: 'overview',
   portal: store('portal') || '', login: { phone: '', code: '', sent: false, devCode: '' }, adm: { open: false, user: '', pass: '' },
-  f: { cat: 'skilled', skillId: '', count: 4, days: 5, level: 'any', qc: false, pay: 'lk', site: '', start: '',
+  f: { qty: {}, days: 5, level: 'any', qc: false, pay: 'lk', site: '', siteAddress: '', lat: null, lng: null, start: '',
        company: '', gst: '', wname: '', warea: '', wexp: '1-3', wupi: '', wcat: 'skilled', wskills: {}, memMethod: 'upi',
        newEn: '', newHi: '', newMr: '', newCat: 'skilled', newWage: '' },
-  data: { bookings: [], jobs: [], work: [], messages: [] }, admin: {},
+  data: { bookings: [], jobs: [], work: [], messages: [], avail: {} }, admin: {}, pick: { id: '', list: [], needed: 0 }, confirmDecline: '',
   cfgDraft: null, confirmCancel: '', confirmDel: '', err: '', busy: false,
 };
 const t = (k, p) => { let s = (T[S.lang] && T[S.lang][k]) || T.en[k] || k; if (p) Object.keys(p).forEach(x => { s = s.split('{' + x + '}').join(p[x]); }); return s; };
@@ -57,6 +57,8 @@ async function loadTab() {
       }
     } else if (u.role === 'contractor' && S.me.contractor) {
       if (['home', 'bookings'].includes(S.ctab)) S.data.bookings = (await api('GET', '/api/contractor/bookings')).bookings;
+      if (S.ctab === 'book') await loadAvailability();
+      if (S.pick.id) await loadPick(S.pick.id);
       if (S.ctab === 'messages') S.data.messages = (await api('GET', '/api/messages')).messages;
     } else if (u.role === 'worker' && S.me.worker) {
       if (S.wtab === 'jobs') S.data.jobs = (await api('GET', '/api/worker/jobs')).jobs;
@@ -64,6 +66,14 @@ async function loadTab() {
       if (S.wtab === 'messages') S.data.messages = (await api('GET', '/api/messages')).messages;
     }
   } catch (e) { toast(e.message); }
+}
+async function loadAvailability() {
+  const f = S.f; if (!f.start || f.start < istDate(0)) f.start = istDate(1);
+  try { S.data.avail = (await api('GET', '/api/contractor/availability?start=' + encodeURIComponent(f.start) + '&days=' + f.days + '&level=' + f.level)).counts; } catch (e) { S.data.avail = {}; }
+}
+async function loadPick(id) {
+  const r = await api('GET', '/api/contractor/bookings/' + id + '/available-workers');
+  S.pick = { id, list: r.workers, needed: r.needed };
 }
 async function refresh() { await loadMe(); await loadTab(); render(); }
 
@@ -126,8 +136,8 @@ function renderLogin() {
   let h = '<div class="login stack"><div class="row"><div class="mark" aria-hidden="true">LK</div><div><h1>Labour Katta</h1><span class="muted">' + esc(t('tagline')) + '</span></div></div>';
   if (!S.portal) {
     return h + '<h2>' + esc(t('choosePortal')) + '</h2>' +
-      opt('portal', 'portal', 'contractor', false, t('portalContractor'), t('portalContractorSub')) +
       opt('portal', 'portal', 'worker', false, t('portalWorker'), t('portalWorkerSub')) +
+      opt('portal', 'portal', 'contractor', false, t('portalContractor'), t('portalContractorSub')) +
       opt('portal', 'portal', 'admin', false, t('portalAdmin'), t('portalAdminSub')) + '</div>';
   }
   const title = S.portal === 'admin' ? t('portalAdmin') : S.portal === 'worker' ? t('portalWorker') : t('portalContractor');
@@ -171,13 +181,37 @@ function renderWorkerProfile(editing) {
 }
 
 // ----- contractor -----
+function bookingLines() {
+  return Object.keys(S.f.qty).filter(id => S.f.qty[id] > 0).map(id => ({ sk: S.me.skills.find(x => x.id === id), count: S.f.qty[id] })).filter(l => l.sk);
+}
 function quote() {
-  const f = S.f, s = settings(), sk = S.me.skills.find(x => x.id === f.skillId), c = S.me.contractor;
-  if (!sk) return null;
+  const f = S.f, s = settings(), c = S.me.contractor, lines = bookingLines();
+  if (!lines.length) return null;
   const bonus = f.level === 'gold' ? s.gold_bonus : f.level === 'silver' ? s.silver_bonus : 0;
-  const wage = sk.wage + bonus, price = wage + s.margin_per_worker_day, qcCost = f.qc ? s.qc_per_day * f.days : 0;
+  const qcCost = f.qc ? s.qc_per_day * f.days : 0;
   const jobFee = c && c.access ? 0 : s.job_fee;
-  return { sk, wage, price, qcCost, jobFee, total: price * f.count * f.days + qcCost + jobFee, feeNow: jobFee + qcCost, wagesYou: wage * f.count * f.days };
+  let work = 0, wagesYou = 0, skilled = 0, unskilled = 0;
+  for (const l of lines) {
+    const wage = l.sk.wage + bonus;
+    work += (wage + s.margin_per_worker_day) * l.count * f.days;
+    wagesYou += wage * l.count * f.days;
+    if (l.sk.cat === 'skilled') skilled += l.count; else unskilled += l.count;
+  }
+  return { lines, skilled, unskilled, qcCost, jobFee, total: work + qcCost + jobFee, feeNow: jobFee + qcCost, wagesYou };
+}
+// Google Maps helpers (no API key needed): embedded preview and a link that opens the Maps app.
+function mapQuery(o) { return o.lat != null && o.lng != null ? o.lat + ',' + o.lng : (o.address || '').trim(); }
+function mapsLink(o) { const q = mapQuery(o); return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : ''; }
+function mapsDirections(o) { const q = mapQuery(o); return q ? 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(q) : ''; }
+function mapEmbed(o, h) {
+  const q = mapQuery(o); if (!q || q.length < 4) return '';
+  return '<div style="border-radius:12px;overflow:hidden;border:1px solid var(--line)"><iframe title="' + esc(t('mapTitle')) + '" src="https://maps.google.com/maps?q=' + encodeURIComponent(q) + '&z=16&output=embed" style="display:block;width:100%;height:' + (h || 220) + 'px;border:0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>';
+}
+function addressBlock(b, directions) {
+  const o = { lat: b.site_lat, lng: b.site_lng, address: b.site_address };
+  const link = directions ? mapsDirections(o) : mapsLink(o);
+  if (!link) return '';
+  return '<div class="row" style="gap:8px;align-items:flex-start"><span class="small grow">' + esc(b.site_address || t('pinnedLocation')) + '</span><a class="btn ghost small" href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(directions ? t('directions') : t('openMaps')) + '</a></div>';
 }
 function statusPill(b) {
   const m = { pending_payment: ['p-red', 'stPending'], open: ['p-amber', 'stOpen'], assigned: ['p-green', 'stAssigned'], cancelled: ['p-grey', 'stCancelled'] }[b.status] || ['p-grey', b.status];
@@ -186,8 +220,25 @@ function statusPill(b) {
 function bookingCard(b) {
   let h = '<section class="card"><div class="row" style="justify-content:space-between"><h3>' + esc(b.count) + ' × ' + esc(bSkill(b)) + '</h3>' + statusPill(b) + '</div>' +
     '<span class="muted small">' + esc(b.site) + ' · ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + ' · ' + esc(t('assignedOf', { a: b.team.length, n: b.count })) + '</span>' +
+    addressBlock(b, false) +
     '<div class="kv small"><span>' + esc(b.pay_mode === 'lk' ? t('payLK') : t('payDirect')) + '</span><b class="num">' + money(b.amount_due) + '</b></div>';
-  if (b.status === 'pending_payment') h += '<button type="button" class="btn primary" data-a="payBooking" data-b="' + esc(b.id) + '">' + esc(t('payPending')) + ' · ' + money(b.amount_due) + '</button>';
+  if (b.status === 'pending_payment') {
+    const group = S.data.bookings.filter(x => x.group_id === b.group_id && x.status === 'pending_payment');
+    if (group[0] && group[0].id === b.id) h += '<button type="button" class="btn primary" data-a="payBooking" data-b="' + esc(b.id) + '">' + esc(t('payPending')) + ' · ' + money(group.reduce((a, x) => a + x.amount_due, 0)) + '</button>';
+  }
+  if (b.status === 'open') {
+    if (S.pick.id === b.id) {
+      h += '<div class="stack" style="gap:8px;background:var(--sunk);border-radius:12px;padding:12px"><div class="row" style="justify-content:space-between"><b>' + esc(t('chooseWorkers')) + '</b><span class="pill p-blue">' + esc(t('needed', { n: S.pick.needed })) + '</span></div>' +
+        (S.pick.list.length ? S.pick.list.map(w => '<div class="li" style="background:var(--surface);border-radius:10px;padding:10px;border:0"><div class="av" aria-hidden="true">' + esc(initials(w.name)) + '</div><div class="grow"><b>' + esc(w.name) + '</b> <span class="pill p-amber">' + esc(t(w.tier)) + '</span>' +
+          '<div class="small muted">' + esc([w.area, w.experience ? t('expYears', { y: w.experience }) : '', t('verifiedN', { n: w.verified }), t('jobsDone', { n: w.jobs_done })].filter(Boolean).join(' · ')) + '</div>' +
+          '<div class="small num">' + money(w.wage) + esc(t('perDayShort')) + '</div></div>' +
+          '<button type="button" class="btn blue small" data-a="selectWorker" data-b="' + esc(b.id) + '" data-w="' + esc(w.worker_id) + '">' + esc(t('selectWorker')) + '</button></div>').join('')
+          : '<p class="small muted" style="margin:0">' + esc(t('noneAvailable')) + '</p>') +
+        '<button type="button" class="btn ghost small" style="align-self:flex-start" data-a="hidePick">' + esc(t('hideWorkers')) + '</button></div>';
+    } else {
+      h += '<button type="button" class="btn blue" data-a="pickWorkers" data-b="' + esc(b.id) + '">' + esc(t('chooseWorkers')) + '</button>';
+    }
+  }
   if (b.team.length && b.status !== 'cancelled') {
     h += '<div><b class="small">' + esc(t('attendance')) + '</b><div class="list">' + b.team.map(w => {
       return '<div class="li" style="flex-wrap:wrap"><div class="av" aria-hidden="true">' + esc(initials(w.name)) + '</div><div class="grow"><b>' + esc(w.name) + '</b><div class="small muted">' + esc(t(w.tier)) + ' · <span class="num">' + esc(w.phone) + '</span></div></div>' +
@@ -202,30 +253,48 @@ function bookingCard(b) {
   }
   return h + '</section>';
 }
+function qtySection(cat, title) {
+  const f = S.f, list = S.me.skills.filter(s => s.cat === cat);
+  const chosen = list.filter(s => f.qty[s.id] > 0);
+  const total = chosen.reduce((a, s) => a + f.qty[s.id], 0);
+  return '<section class="card"><div class="row" style="justify-content:space-between"><h2>' + esc(title) + '</h2><span class="pill ' + (total ? 'p-blue' : 'p-grey') + '">' + esc(t('workersCount', { n: total })) + '</span></div>' +
+    '<span class="small muted">' + esc(t('tapToAdd')) + ' ' + esc(t('chipCountNote')) + '</span>' +
+    '<div class="chips">' + list.map(s => '<button type="button" class="chip sk" data-a="addQty" data-v="' + esc(s.id) + '" aria-pressed="' + (f.qty[s.id] > 0) + '">' + esc(skillName(s)) + ' <span class="num" style="opacity:.7">· ' + (S.data.avail[s.id] || 0) + '</span></button>').join('') + '</div>' +
+    (chosen.length ? '<div class="list">' + chosen.map(s => '<div class="li"><div class="grow"><b>' + esc(skillName(s)) + '</b><div class="small muted num">' + money((f.pay === 'lk' ? s.wage + settings().margin_per_worker_day : s.wage)) + ' ' + esc(t('perDay')) + '</div>' +
+      '<div class="small num" style="color:' + ((S.data.avail[s.id] || 0) >= f.qty[s.id] ? 'var(--green-ink)' : 'var(--red-ink)') + '">' + esc(t('availableNow', { n: S.data.avail[s.id] || 0 })) + '</div></div>' +
+      '<div class="stepper"><button type="button" data-a="qty" data-v="-1" data-k="' + esc(s.id) + '" aria-label="' + esc(skillName(s)) + ' −1">−</button><output class="num">' + f.qty[s.id] + '</output><button type="button" data-a="qty" data-v="1" data-k="' + esc(s.id) + '" aria-label="' + esc(skillName(s)) + ' +1">+</button></div></div>').join('') + '</div>' : '') +
+    '</section>';
+}
 function renderBook() {
-  const f = S.f, list = S.me.skills.filter(s => s.cat === f.cat);
-  if (!list.find(s => s.id === f.skillId) && list[0]) f.skillId = list[0].id;
+  const f = S.f;
   if (!f.start || f.start < istDate(0)) f.start = istDate(1);
   const q = quote();
-  let h = '<section class="card"><h2>' + esc(t('whichWork')) + '</h2>' + seg('cat', [['skilled', t('skilled')], ['unskilled', t('unskilled')]], f.cat) +
-    '<div class="chips">' + list.map(s => '<button type="button" class="chip sk" data-a="set" data-k="skillId" data-v="' + esc(s.id) + '" aria-pressed="' + (s.id === f.skillId) + '">' + esc(skillName(s)) + '</button>').join('') + '</div>' +
-    (q ? '<span class="small muted num">' + money(f.pay === 'lk' ? q.price : q.wage) + ' ' + esc(t('perDay')) + '</span>' : '') + '</section>';
-  h += '<section class="card"><div class="row" style="justify-content:space-between"><span style="font-weight:600">' + esc(t('howMany')) + '</span>' +
-    '<div class="stepper"><button type="button" data-a="count" data-v="-1" aria-label="−1">−</button><output class="num">' + f.count + '</output><button type="button" data-a="count" data-v="1" aria-label="+1">+</button></div></div>' +
+  let h = qtySection('skilled', t('skilledWorkers')) + qtySection('unskilled', t('unskilledWorkers'));
+  const pin = { lat: f.lat, lng: f.lng, address: f.siteAddress };
+  h += '<section class="card"><h2>' + esc(t('siteTitle')) + '</h2>' +
     '<label class="f" for="b-site">' + esc(t('site')) + '<input id="b-site" class="in" data-f="site" value="' + esc(f.site) + '" placeholder="' + esc(t('sitePh')) + '" maxlength="160"></label>' +
-    '<div class="grid2"><label class="f" for="b-start">' + esc(t('startDate')) + '<input id="b-start" class="in" type="date" data-f="start" value="' + esc(f.start) + '" min="' + istDate(0) + '"></label>' +
+    '<label class="f" for="b-addr">' + esc(t('siteAddress')) + '<input id="b-addr" class="in" data-f="siteAddress" value="' + esc(f.siteAddress) + '" placeholder="' + esc(t('siteAddressPh')) + '" maxlength="300" autocomplete="street-address"></label>' +
+    '<div class="row"><button type="button" class="btn ghost small" data-a="locate">' + esc(f.lat != null ? t('pinUpdate') : t('useLocation')) + '</button>' +
+    (f.lat != null ? '<span class="pill p-green num">' + esc(t('pinSet')) + '</span><button type="button" class="btn ghost small" data-a="clearPin">' + esc(t('clearPin')) + '</button>' : '') +
+    (mapsLink(pin) ? '<a class="btn ghost small" href="' + esc(mapsLink(pin)) + '" target="_blank" rel="noopener">' + esc(t('openMaps')) + '</a>' : '') + '</div>' +
+    mapEmbed(pin) + '</section>';
+  h += '<section class="card"><div class="grid2"><label class="f" for="b-start">' + esc(t('startDate')) + '<input id="b-start" class="in" type="date" data-f="start" value="' + esc(f.start) + '" min="' + istDate(0) + '"></label>' +
     '<div class="f"><span>' + esc(t('days')) + '</span>' + seg('days', [[1, '1'], [3, '3'], [5, '5'], [7, '7'], [15, '15'], [30, '30']], f.days) + '</div></div>' +
     '<div class="f"><span>' + esc(t('level')) + '</span>' + seg('level', [['any', t('lvAny')], ['silver', t('lvSilver')], ['gold', t('lvGold')]], f.level) + '</div>' +
     '<button type="button" class="opt" data-a="toggle" data-k="qc" aria-pressed="' + f.qc + '"><span class="dot"></span><span><b>' + esc(t('addQc')) + '</b><br><span class="small muted num">' + money(settings().qc_per_day) + esc(t('perDayShort')) + '</span></span></button></section>';
   h += '<section class="card"><h2>' + esc(t('howPay')) + '</h2>' + opt('set', 'pay', 'lk', f.pay === 'lk', t('payLK'), t('payLKSub')) + opt('set', 'pay', 'direct', f.pay === 'direct', t('payDirect'), t('payDirectSub')) + '</section>';
+  h += '<section class="card hero">';
   if (q) {
-    h += '<section class="card hero">' + (f.pay === 'lk'
-      ? '<div class="kv"><span class="muted">' + esc(t('estTotal')) + '</span><span class="big num">' + money(q.total) + '</span></div>'
-      : '<div class="kv"><span class="muted">' + esc(t('payNow')) + '</span><span class="big num">' + money(q.feeNow) + '</span></div><div class="kv"><span class="muted">' + esc(t('wagesYou')) + '</span><b class="num">' + money(q.wagesYou) + '</b></div>') +
-      '<span class="small muted">' + f.count + ' × ' + esc(skillName(q.sk)) + ' · ' + f.days + ' ' + esc(t('daysW')) + ' · ' + esc(q.jobFee ? t('jobFeeIncl', { f: money(q.jobFee) }) : t('noJobFee')) + '</span>' +
-      errBox() + '<button type="button" class="btn primary wide" data-a="book"' + (S.busy ? ' disabled' : '') + '>' + esc(t('confirm')) + '</button></section>';
+    h += '<div class="grid2"><div><span class="muted small">' + esc(t('skilledWorkers')) + '</span><div class="big num">' + q.skilled + '</div></div><div><span class="muted small">' + esc(t('unskilledWorkers')) + '</span><div class="big num">' + q.unskilled + '</div></div></div>' +
+      (f.pay === 'lk'
+        ? '<div class="kv"><span class="muted">' + esc(t('estTotal')) + '</span><span class="big num">' + money(q.total) + '</span></div>'
+        : '<div class="kv"><span class="muted">' + esc(t('payNow')) + '</span><span class="big num">' + money(q.feeNow) + '</span></div><div class="kv"><span class="muted">' + esc(t('wagesYou')) + '</span><b class="num">' + money(q.wagesYou) + '</b></div>') +
+      '<span class="small muted">' + esc(q.lines.map(l => l.count + ' × ' + skillName(l.sk)).join(' + ')) + ' · ' + f.days + ' ' + esc(t('daysW')) + ' · ' + esc(q.jobFee ? t('jobFeeIncl', { f: money(q.jobFee) }) : t('noJobFee')) + '</span>' +
+      errBox() + '<button type="button" class="btn primary wide" data-a="book"' + (S.busy ? ' disabled' : '') + '>' + esc(t('confirm')) + '</button>';
+  } else {
+    h += '<span>' + esc(t('pickWorkersFirst')) + '</span>';
   }
-  return h;
+  return h + '</section>';
 }
 function renderMessages() {
   const live = S.me.integrations.whatsapp === 'live';
@@ -274,17 +343,25 @@ function renderWorker() {
   let h = '<div class="stack"><section class="card hero"><div class="row"><div class="av" aria-hidden="true">' + esc(initials(w.name)) + '</div><div class="grow"><h2>' + esc(w.name) + '</h2><span class="muted small">' + esc(w.skills.map(id => skillName(S.me.skills.find(x => x.id === id))).join(', ')) + '</span></div><span class="pill p-amber">' + esc(t(w.tier)) + '</span></div></section>';
   h += tabs([['jobs', t('tJobs')], ['work', t('tWork')], ['earn', t('tEarn')], ['member', t('tMember')], ['profile', t('tProfile')], ['messages', t('tMessages')]], S.wtab, 'wtab');
   const member = w.access;
+  if (S.wtab === 'jobs' && member) {
+    const on = w.available !== 0;
+    h += '<button type="button" class="opt" data-a="toggleAvail" aria-pressed="' + on + '"><span class="dot"></span><span><b>' + esc(t('availToggle')) + '</b><br><span class="small">' + esc(on ? t('availOnSub') : t('availOffSub')) + '</span></span></button>';
+  }
   if (S.wtab === 'jobs') {
-    if (!member) h += '<div class="empty"><p style="margin:0">' + esc(t('needMember')) + '</p><button type="button" class="btn primary" data-a="wtab" data-v="member">' + esc(t('startMem')) + '</button></div>';
+    if (member && w.available === 0) h += empty(t('notAvailableNote'));
+    else if (!member) h += '<div class="empty"><p style="margin:0">' + esc(t('needMember')) + '</p><button type="button" class="btn primary" data-a="wtab" data-v="member">' + esc(t('startMem')) + '</button></div>';
     else h += S.data.jobs.length ? S.data.jobs.map(b => '<section class="card offer"><h3>' + esc(bSkill(b)) + '</h3><span class="small">' + esc(b.site) + ' · ' + esc(t('starts')) + ' ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + '</span>' +
       '<div class="kv"><span class="big num">' + money(b.wage) + '<span class="small muted">' + esc(t('perDayShort')) + '</span></span><span class="pill p-blue">' + esc(t('needed', { n: b.needed })) + '</span></div>' +
+      addressBlock(b, true) +
       '<span class="small" style="color:var(--green-ink)">' + esc(b.pay_mode === 'lk' ? t('paidLK') : t('paidDirect')) + '</span>' +
       '<button type="button" class="btn blue wide" data-a="accept" data-b="' + esc(b.id) + '">' + esc(t('accept')) + '</button></section>').join('') : empty(t('noJobs'));
   }
   if (S.wtab === 'work') {
     h += S.data.work.length ? S.data.work.map(b => '<section class="card"><h3>' + esc(bSkill(b)) + '</h3><span class="small muted">' + esc(b.site) + ' · ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + '</span>' +
-      '<div class="kv small"><span>' + esc(t('contractorLbl')) + ': ' + esc(b.company) + '</span><span class="num">' + esc(b.contractor_phone) + '</span></div>' +
+      '<div class="kv small"><span>' + esc(t('contractorLbl')) + ': ' + esc(b.company) + '</span><span class="num">' + esc(b.contractor_phone) + '</span></div>' + addressBlock(b, true) +
       '<span class="small">' + esc(b.pay_mode === 'lk' ? t('paidLK') : t('paidDirect')) + '</span>' +
+      (S.confirmDecline === b.id ? '<div class="row"><button type="button" class="btn danger small" data-a="declineJob" data-b="' + esc(b.id) + '">' + esc(t('confirmCantGo')) + '</button><button type="button" class="btn ghost small" data-a="keepJob">' + esc(t('keepJob')) + '</button></div>'
+        : (b.start_date >= istDate(0) ? '<button type="button" class="btn ghost small" style="align-self:flex-start" data-a="askDecline" data-b="' + esc(b.id) + '">' + esc(t('cantGo')) + '</button>' : '')) +
       (b.pay_mode === 'direct' ? (b.paid_confirmation ? '<div class="status ' + (b.paid_confirmation === 'yes' ? 's-ok' : 's-err') + '">' + esc(b.paid_confirmation === 'yes' ? t('saidYes') : t('saidNo')) + '</div>'
         : '<b class="small">' + esc(t('gotPaid')) + '</b><div class="grid2"><button type="button" class="btn danger small" data-a="paid" data-b="' + esc(b.id) + '" data-v="no">' + esc(t('no')) + '</button><button type="button" class="btn blue small" data-a="paid" data-b="' + esc(b.id) + '" data-v="yes">' + esc(t('yes')) + '</button></div>') : '') + '</section>').join('') : empty(t('noWork'));
   }
@@ -427,9 +504,20 @@ document.addEventListener('click', (ev) => {
   const simple = {
     lang: () => { S.lang = v; store('lang', v); if (S.me && S.me.user) api('POST', '/api/me/lang', { lang: v }).catch(() => {}); },
     view: () => { S.view = v; store('view', v); loadTab().then(render); },
-    set: () => { const k = b.getAttribute('data-k'); S.f[k] = k === 'days' ? n0(v) : v; },
+    set: () => { const k = b.getAttribute('data-k'); S.f[k] = k === 'days' ? n0(v) : v; if ((k === 'days' || k === 'level') && S.ctab === 'book') loadAvailability().then(render); },
     toggle: () => { const k = b.getAttribute('data-k'); S.f[k] = !S.f[k]; },
-    count: () => { S.f.count = Math.max(1, Math.min(100, S.f.count + (v === '-1' ? -1 : 1))); },
+    hidePick: () => { S.pick = { id: '', list: [], needed: 0 }; },
+    askDecline: () => { S.confirmDecline = bid; }, keepJob: () => { S.confirmDecline = ''; },
+    addQty: () => { S.f.qty[v] = S.f.qty[v] > 0 ? 0 : 1; },
+    qty: () => { const k = b.getAttribute('data-k'); S.f.qty[k] = Math.max(0, Math.min(100, (S.f.qty[k] || 0) + (v === '-1' ? -1 : 1))); },
+    clearPin: () => { S.f.lat = null; S.f.lng = null; },
+    locate: () => {
+      if (!navigator.geolocation) { toast(t('locationFailed')); return; }
+      toast(t('locating'));
+      navigator.geolocation.getCurrentPosition(pos => {
+        S.f.lat = Math.round(pos.coords.latitude * 1e6) / 1e6; S.f.lng = Math.round(pos.coords.longitude * 1e6) / 1e6; render();
+      }, () => toast(t('locationFailed')), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+    },
     wskill: () => { S.f.wskills[v] = !S.f.wskills[v]; },
     portal: () => { S.portal = v; store('portal', v); S.login = { phone: '', code: '', sent: false, devCode: '' }; },
     changeNumber: () => { S.login = { phone: S.login.phone, code: '', sent: false, devCode: '' }; },
@@ -455,10 +543,14 @@ document.addEventListener('click', (ev) => {
     saveWorker: async () => { await api('POST', '/api/worker/profile', { name: S.f.wname, area: S.f.warea, experience: S.f.wexp, upiId: S.f.wupi, skills: Object.keys(S.f.wskills).filter(k => S.f.wskills[k]) }); toast(t('saved')); await refresh(); },
     book: async () => {
       const f = S.f;
-      const r = await api('POST', '/api/contractor/bookings', { skillId: f.skillId, count: f.count, days: f.days, level: f.level, qc: f.qc, payMode: f.pay, site: f.site, startDate: f.start });
+      const r = await api('POST', '/api/contractor/bookings', { lines: Object.keys(f.qty).map(k => ({ skillId: k, count: f.qty[k] })), days: f.days, level: f.level, qc: f.qc, payMode: f.pay, site: f.site, siteAddress: f.siteAddress, siteLat: f.lat, siteLng: f.lng, startDate: f.start });
       if (r.payment) { const ok = await pay(r.payment, t('tBook')); if (!ok) { S.ctab = 'bookings'; await refresh(); return; } }
-      toast(t('bookingSent')); S.f.site = ''; S.ctab = 'bookings'; await refresh();
+      toast(t('bookingSent')); Object.assign(S.f, { qty: {}, site: '', siteAddress: '', lat: null, lng: null }); S.ctab = 'bookings'; await refresh();
     },
+    pickWorkers: async () => { await loadPick(bid); },
+    selectWorker: async () => { await api('POST', '/api/contractor/bookings/' + bid + '/select', { workerId: b.getAttribute('data-w') }); toast(t('workerSelected')); await loadTab(); if (S.pick.id && !S.pick.needed) S.pick = { id: '', list: [], needed: 0 }; },
+    toggleAvail: async () => { await api('POST', '/api/worker/availability', { available: S.me.worker.available === 0 }); await refresh(); },
+    declineJob: async () => { await api('POST', '/api/worker/work/' + bid + '/decline'); S.confirmDecline = ''; toast(t('declinedToast')); await loadTab(); },
     payBooking: async () => { const r = await api('POST', '/api/contractor/bookings/' + bid + '/pay'); if (await pay(r.payment, t('tBook'))) toast(t('bookingSent')); await refresh(); },
     att: async () => { await api('POST', '/api/contractor/bookings/' + bid + '/attendance', { workerId: b.getAttribute('data-w'), status: v }); await loadTab(); },
     replace: async () => { await api('POST', '/api/contractor/bookings/' + bid + '/replace', { workerId: b.getAttribute('data-w') }); toast(t('replaceAsked')); await loadTab(); },
@@ -485,7 +577,7 @@ document.addEventListener('input', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const el = ev.target;
-  const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; if (k === 'start') render(); return; }
+  const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; if (k === 'start') loadAvailability().then(render); else if (k === 'siteAddress') render(); return; }
   const cp = el.getAttribute('data-cp'), wp = el.getAttribute('data-wp');
   if (cp || wp) { act(async () => { await api('POST', '/api/admin/' + (cp ? 'contractors/' + cp : 'workers/' + wp) + '/price', { price: el.value === '' ? null : n0(el.value) }); toast('Special price saved'); await loadTab(); }); return; }
   const sk = el.getAttribute('data-sk'), wk = el.getAttribute('data-wk'), fld = el.getAttribute('data-fld');

@@ -24,28 +24,29 @@ function assertTestModeAllowed() {
 const prefill = (user) => ({ contact: '+91' + user.phone });
 
 // ---- bookings ----
-r.post('/contractor/bookings', auth.requireRole('contractor'), async (req, res) => {
-  const { bookingId, amountDue, needsPayment } = domain.createBooking(req.user.id, req.body);
-  if (!needsPayment) { await domain.openBooking(bookingId); return res.json({ bookingId, paid: true }); }
+async function startBookingPayment(req, res, groupId, amount, extra) {
+  const p = newPayment(req.user.id, 'booking', groupId, amount);
   if (!config.razorpay.live) {
     assertTestModeAllowed();
-    const p = newPayment(req.user.id, 'booking', bookingId, amountDue);
-    return res.json({ bookingId, payment: { mode: 'test', paymentId: p.id, amount: amountDue } });
+    return res.json(Object.assign({}, extra, { payment: { mode: 'test', paymentId: p.id, amount } }));
   }
-  const p = newPayment(req.user.id, 'booking', bookingId, amountDue);
-  const order = await rzp.createOrder({ amount: amountDue, receipt: p.id, notes: { payment_id: p.id, booking_id: bookingId } });
+  const order = await rzp.createOrder({ amount, receipt: p.id, notes: { payment_id: p.id, order_id: groupId } });
   db.prepare('UPDATE payments SET rzp_order_id = ? WHERE id = ?').run(order.id, p.id);
-  res.json({ bookingId, payment: { mode: 'live', paymentId: p.id, amount: amountDue, checkout: { key: config.razorpay.keyId, order_id: order.id, amount: order.amount, currency: 'INR', prefill: prefill(req.user) } } });
+  res.json(Object.assign({}, extra, { payment: { mode: 'live', paymentId: p.id, amount, checkout: { key: config.razorpay.keyId, order_id: order.id, amount: order.amount, currency: 'INR', prefill: prefill(req.user) } } }));
+}
+
+r.post('/contractor/bookings', auth.requireRole('contractor'), async (req, res) => {
+  const { groupId, bookingId, bookingIds, amountDue, needsPayment } = domain.createBooking(req.user.id, req.body);
+  if (!needsPayment) { await domain.openGroup(groupId); return res.json({ groupId, bookingId, bookingIds, paid: true }); }
+  await startBookingPayment(req, res, groupId, amountDue, { groupId, bookingId, bookingIds });
 });
 
+// Pay for an order that is still waiting for payment (any of its lines can be passed).
 r.post('/contractor/bookings/:id/pay', auth.requireRole('contractor'), async (req, res) => {
   const b = db.prepare("SELECT * FROM bookings WHERE id = ? AND contractor_id = ? AND status = 'pending_payment'").get(req.params.id, req.user.id);
   if (!b) throw new HttpError(404, 'This booking does not need payment.', 'not_found');
-  if (!config.razorpay.live) { assertTestModeAllowed(); const p = newPayment(req.user.id, 'booking', b.id, b.amount_due); return res.json({ payment: { mode: 'test', paymentId: p.id, amount: b.amount_due } }); }
-  const p = newPayment(req.user.id, 'booking', b.id, b.amount_due);
-  const order = await rzp.createOrder({ amount: b.amount_due, receipt: p.id, notes: { payment_id: p.id, booking_id: b.id } });
-  db.prepare('UPDATE payments SET rzp_order_id = ? WHERE id = ?').run(order.id, p.id);
-  res.json({ payment: { mode: 'live', paymentId: p.id, amount: b.amount_due, checkout: { key: config.razorpay.keyId, order_id: order.id, amount: order.amount, currency: 'INR', prefill: prefill(req.user) } } });
+  const amount = db.prepare("SELECT COALESCE(SUM(amount_due),0) AS n FROM bookings WHERE group_id = ? AND status = 'pending_payment'").get(b.group_id).n;
+  await startBookingPayment(req, res, b.group_id, amount, {});
 });
 
 // ---- worker membership ----

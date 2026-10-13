@@ -127,6 +127,16 @@ const MIGRATIONS = [
    ALTER TABLE contractors ADD COLUMN custom_price INTEGER;
    ALTER TABLE workers ADD COLUMN trial_until TEXT;
    ALTER TABLE workers ADD COLUMN custom_price INTEGER;`,
+  // 3: one order can hold several lines (e.g. 4 masons + 6 helpers); site address and map pin
+  `ALTER TABLE bookings ADD COLUMN group_id TEXT;
+   ALTER TABLE bookings ADD COLUMN site_address TEXT NOT NULL DEFAULT '';
+   ALTER TABLE bookings ADD COLUMN site_lat REAL;
+   ALTER TABLE bookings ADD COLUMN site_lng REAL;
+   UPDATE bookings SET group_id = id WHERE group_id IS NULL;
+   CREATE INDEX bookings_group ON bookings(group_id);`,
+  // 4: workers can switch themselves off ("not available for work")
+  `ALTER TABLE workers ADD COLUMN available INTEGER NOT NULL DEFAULT 1;
+   CREATE INDEX assignments_worker ON assignments(worker_id);`,
 ];
 
 db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');

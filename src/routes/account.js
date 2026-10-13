@@ -30,12 +30,12 @@ r.post('/auth/verify-otp', otpLimiter, (req, res) => {
   const phone = normalizePhone(req.body.phone);
   if (!phone) throw bad('Enter a valid 10-digit Indian mobile number.', 'bad_phone');
   const portal = ['worker', 'contractor'].includes(req.body.portal) ? req.body.portal : null;
-  if (!portal) throw bad('Choose the Contractor or Worker portal first.', 'no_portal');
+  if (!portal) throw bad('Choose Login as Worker or Login as Builder first.', 'no_portal');
   const existing = db.prepare('SELECT role FROM users WHERE phone = ?').get(phone);
   if (existing && existing.role && existing.role !== portal) {
     throw new HttpError(403, existing.role === 'worker'
-      ? 'This number is registered as a worker. Please use the Worker portal.'
-      : 'This number is registered as a contractor. Please use the Contractor portal.', 'wrong_portal');
+      ? 'This number is registered as a worker. Please use Login as Worker.'
+      : 'This number is registered as a builder. Please use Login as Builder.', 'wrong_portal');
   }
   auth.checkOtp(phone, req.body.code);
   let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);

@@ -40,7 +40,7 @@ const config = {
   whatsapp: {
     token: env.WHATSAPP_TOKEN || '',
     phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID || '',
-    apiVersion: env.WHATSAPP_API_VERSION || 'v21.0',
+    apiVersion: env.WHATSAPP_API_VERSION || 'v23.0',
     // Approved template names in your WhatsApp Business account. Override if you name them differently.
     templates: {
       otp: env.WA_TPL_OTP || 'lk_otp',

@@ -22,6 +22,8 @@ function client(base) {
   let cookies = {};
   return async function call(method, url, body) {
     const cookie = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+    // Tick the terms like the app does, unless a test leaves them unticked on purpose (acceptTerms: false).
+    if (method === 'POST' && /^\/api\/(contractor\/bookings|worker\/jobs\/[^/]+\/(accept|ask)|worker\/work\/[^/]+\/confirm)$/.test(url)) body = Object.assign({ acceptTerms: true }, body || {});
     const res = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: body ? JSON.stringify(body) : undefined });
     for (const c of res.headers.getSetCookie()) { const [kv] = c.split(';'); const i = kv.indexOf('='); const k = kv.slice(0, i), v = kv.slice(i + 1); if (v) cookies[k] = v; else delete cookies[k]; }
     const json = await res.json().catch(() => ({}));
@@ -131,8 +133,8 @@ async function testPay(call, payment) {
     require('../src/db').db.prepare('UPDATE bookings SET start_date = ? WHERE id = ?').run(todayIST(0), bk.bookingId);
     // attendance + replacement
     await con('POST', `/api/contractor/bookings/${bk.bookingId}/attendance`, { workerId: w2id, status: 'absent' });
-    await con('POST', `/api/contractor/bookings/${bk.bookingId}/replace`, { workerId: w2id });
-    await w3('POST', `/api/worker/jobs/${bk.bookingId}/accept`);
+    const rp = await con('POST', `/api/contractor/bookings/${bk.bookingId}/replace`, { workerId: w2id });
+    assert.strictEqual(rp.replacedBy, 'Sunil Jadhav', 'next free worker put on automatically, no extra cost');
     list = (await con('GET', '/api/contractor/bookings')).bookings;
     assert.deepStrictEqual(list[0].team.map(t => t.name).sort(), ['Ramesh Patil', 'Sunil Jadhav']);
 
@@ -197,12 +199,12 @@ async function testPay(call, payment) {
     assert.strictEqual((await con('POST', `/api/contractor/bookings/${pick.bookingId}/select`, { workerId: w3id })).full, true);
     assert.ok((await w2('GET', '/api/worker/work')).work.some(j => j.id === pick.bookingId), 'selected job shows in worker My work');
     await assert.rejects(w1('POST', `/api/contractor/bookings/${pick.bookingId}/select`, { workerId: w1id }), e => e.status === 403);
-    // worker can't go → place reopens and is offered again
-    await w2('POST', `/api/worker/work/${pick.bookingId}/decline`);
+    // worker can't go → the next free worker is put on automatically, no extra cost
+    const dec = await w2('POST', `/api/worker/work/${pick.bookingId}/decline`);
+    assert.strictEqual(dec.replacedBy, 'Ramesh Patil');
     let pk = (await con('GET', '/api/contractor/bookings')).bookings.find(b => b.id === pick.bookingId);
-    assert.strictEqual(pk.status, 'open'); assert.strictEqual(pk.team.length, 1);
-    avail = (await con('GET', `/api/contractor/bookings/${pick.bookingId}/available-workers`)).workers;
-    assert.deepStrictEqual(avail.map(w => w.name), ['Ramesh Patil']);
+    assert.strictEqual(pk.status, 'assigned'); assert.strictEqual(pk.team.length, 2);
+    assert.ok((await con('GET', '/api/messages')).messages.some(m => /put on the job instead, at no extra cost/.test(m.body)));
     // a worker on overlapping dates does not see the job
     const clash = await con('POST', '/api/contractor/bookings', { lines: [{ skillId: 's02', count: 1 }], days: 1, payMode: 'direct', site: 'Clash', startDate: later });
     await testPay(con, clash.payment);
@@ -236,7 +238,7 @@ async function testPay(call, payment) {
     // ---- messages ----
     outbox = (await admin('GET', '/api/admin/notifications')).notifications;
     const kinds = new Set(outbox.map(n => n.template));
-    for (const k of ['bookingReceived', 'teamReady', 'jobConfirmed', 'jobOffer', 'replacement', 'planStarted', 'membershipStarted', 'workerAssigned', 'workerCheckin']) assert.ok(kinds.has(k), 'outbox has ' + k);
+    for (const k of ['bookingReceived', 'teamReady', 'jobConfirmed', 'jobOffer', 'autoReplaced', 'planStarted', 'membershipStarted', 'workerAssigned', 'workerCheckin']) assert.ok(kinds.has(k), 'outbox has ' + k);
     assert.ok(outbox.every(n => n.status === 'test'));
     assert.ok((await con('GET', '/api/messages')).messages.some(m => /Your team is ready/.test(m.body)));
 

@@ -21,8 +21,9 @@ const S = {
        aw: { phone: '', name: '', area: '', experience: '', coupon: '', skills: {} }, ab: { phone: '', company: '', gst: '', coupon: '' },
        cp: { code: '', applies_to: 'both', kind: 'percent', value: '', max_uses: '', expires: '', note: '' },
        grp: { name: '', perms: {} }, st: { name: '', username: '', password: '', phone: '', group_id: '' },
-       reportTime: '09:00', otRate: '', prefer: [], noticeText: '', teamName: '', busyUntil: '', availPick: '', disputeText: '', rf: 'open' },
+       reportTime: '09:00', otRate: '', travel: '', bterms: false, wterms: false, ask: { wage: '', travel: '', note: '' }, prefer: [], noticeText: '', teamName: '', busyUntil: '', availPick: '', disputeText: '', rf: 'open' },
   ws: { skill: '', area: '', exp: '', minRating: '', maxWage: '', level: 'any', start: '', days: '1', verified: false, fav: false, results: null, total: 0 },
+  askFor: '',
   pf: { area: '', exp: '', minRating: '', maxWage: '', verified: false, fav: false },
   rep: { kind: 'problem', category: 'other', bookingId: '', text: '', urgent: false },
   panel: {}, reg: null, confirmBlock: '', disputeFor: '',
@@ -240,8 +241,11 @@ function quote() {
     if (l.sk.cat === 'skilled') skilled += l.count; else unskilled += l.count;
   }
   const workers = skilled + unskilled, platformFee = (s.platform_fee_per_worker || 0) * workers;
+  const travel = n0(f.travel), travelTotal = travel * workers * f.days;
   const rows = lines.map(l => ({ label: l.count + ' × ' + skillName(l.sk), rate: l.sk.wage + bonus, amount: (l.sk.wage + bonus) * l.count * f.days }));
-  return { lines, rows, bonus, skilled, unskilled, workers, qcCost, jobFee, platformFee, service: work - wagesYou, total: work + qcCost + jobFee + platformFee, feeNow: jobFee + qcCost + platformFee, wagesYou };
+  const service = work - wagesYou;
+  wagesYou += travelTotal;
+  return { lines, rows, bonus, skilled, unskilled, workers, qcCost, jobFee, platformFee, travel, travelTotal, service, total: work + travelTotal + qcCost + jobFee + platformFee, feeNow: jobFee + qcCost + platformFee, wagesYou, wagesOnly: wagesYou - travelTotal };
 }
 // Google Maps helpers (no API key needed): embedded preview and a link that opens the Maps app.
 function mapQuery(o) { return o.lat != null && o.lng != null ? o.lat + ',' + o.lng : (o.address || '').trim(); }
@@ -287,6 +291,7 @@ function bookingCard(b) {
       h += '<button type="button" class="btn blue" data-a="pickWorkers" data-b="' + esc(b.id) + '">' + esc(t('chooseWorkers')) + '</button>';
     }
   }
+  h += asksBlock(b);
   if (b.team.length && b.status !== 'cancelled') {
     h += '<div><div class="row" style="justify-content:space-between"><b class="small">' + esc(t('attendance')) + ' · ' + esc(fmtDate(istDate(0))) + '</b>' +
       (b.wagesEarned != null ? '<span class="small muted">' + esc(t('wagesEarned')) + ' <b class="num">' + money(b.wagesEarned) + '</b></span>' : '') + '</div><div class="list">' + b.team.map(w => {
@@ -336,7 +341,9 @@ function renderBook() {
     '<div class="f"><span>' + esc(t('level')) + '</span>' + seg('level', [['any', t('lvAny')], ['silver', t('lvSilver')], ['gold', t('lvGold')]], f.level) + '</div>' +
     '<span class="small muted">' + esc(t('levelShort')) + '</span>' +
     '<div class="grid2"><label class="f" for="b-rt">' + esc(t('reportTime')) + '<input id="b-rt" class="in" type="time" data-f="reportTime" value="' + esc(f.reportTime || '09:00') + '"></label>' +
-    '<label class="f" for="b-ot">' + esc(t('otRateLbl')) + '<input id="b-ot" class="in num" type="number" min="0" data-f="otRate" value="' + esc(f.otRate) + '" placeholder="' + esc(t('otAuto', { m: settings().ot_multiplier || 2 })) + '"></label></div>' +
+    '<label class="f" for="b-ot">' + esc(t('otRateLbl')) + '<input id="b-ot" class="in num" type="number" min="0" data-f="otRate" value="' + esc(f.otRate) + '" placeholder="' + esc(t('otAuto', { m: settings().ot_multiplier || 2 })) + '"></label>' +
+    '<label class="f" for="b-travel">' + esc(t('travelLbl')) + '<input id="b-travel" class="in num" type="number" min="0" max="2000" data-f="travel" value="' + esc(f.travel) + '" placeholder="0"></label></div>' +
+    '<span class="small muted">' + esc(t('travelNote')) + '</span>' +
     (f.prefer.length ? '<div class="f"><span>' + esc(t('preferTitle')) + '</span><span class="small muted">' + esc(t('preferSub')) + '</span><div class="chips">' + f.prefer.map(p => '<button type="button" class="chip" data-a="removePrefer" data-v="' + esc(p.id) + '" aria-label="' + esc(t('remove') + ' ' + p.name) + '">' + esc(p.name) + ' ✕</button>').join('') + '</div></div>' : '') +
     '<button type="button" class="opt" data-a="toggle" data-k="qc" aria-pressed="' + f.qc + '"><span class="dot"></span><span><b>' + esc(t('addQc')) + '</b><br><span class="small muted num">' + money(settings().qc_per_day) + esc(t('perDayShort')) + '</span></span></button></section>';
   h += '<section class="card"><h2>' + esc(t('howPay')) + '</h2>' + opt('set', 'pay', 'lk', f.pay === 'lk', t('payLK'), t('payLKSub')) + opt('set', 'pay', 'direct', f.pay === 'direct', t('payDirect'), t('payDirectSub')) + '</section>';
@@ -345,7 +352,8 @@ function renderBook() {
     h += '<div class="grid2"><div><span class="muted small">' + esc(t('skilledWorkers')) + '</span><div class="big num">' + q.skilled + '</div></div><div><span class="muted small">' + esc(t('unskilledWorkers')) + '</span><div class="big num">' + q.unskilled + '</div></div></div>' +
       '<div class="bill" role="table" aria-label="' + esc(t('costBreakdown')) + '"><div class="bill-h">' + esc(t('costBreakdown')) + ' · ' + f.days + ' ' + esc(t('daysW')) + '</div>' +
       q.rows.map(r => '<div class="bill-r"><span>' + esc(r.label) + ' <span class="muted num">@ ' + money(r.rate) + esc(t('perDayShort')) + '</span></span><span class="num">' + money(r.amount) + '</span></div>').join('') +
-      '<div class="bill-r sub"><span>' + esc(t('bdWages')) + (f.pay === 'direct' ? ' · ' + esc(t('bdYouPay')) : '') + '</span><span class="num">' + money(q.wagesYou) + '</span></div>' +
+      '<div class="bill-r sub"><span>' + esc(t('bdWages')) + (f.pay === 'direct' ? ' · ' + esc(t('bdYouPay')) : '') + '</span><span class="num">' + money(q.wagesOnly) + '</span></div>' +
+      (q.travelTotal ? '<div class="bill-r"><span>' + esc(t('bdTravel', { t: money(q.travel), n: q.workers, d: f.days })) + '</span><span class="num">' + money(q.travelTotal) + '</span></div>' : '') +
       (f.pay === 'lk' ? '<div class="bill-r"><span>' + esc(t('bdService')) + '</span><span class="num">' + money(q.service) + '</span></div>' : '') +
       (q.qcCost ? '<div class="bill-r"><span>' + esc(t('addQc')) + '</span><span class="num">' + money(q.qcCost) + '</span></div>' : '') +
       '<div class="bill-r"><span>' + esc(t('bdJobFee')) + '</span><span class="num">' + (q.jobFee ? money(q.jobFee) : esc(t('bdFree'))) + '</span></div>' +
@@ -353,8 +361,8 @@ function renderBook() {
       (f.pay === 'lk'
         ? '<div class="bill-r tot"><span>' + esc(t('payNow')) + '</span><span class="num">' + money(q.total) + '</span></div>'
         : '<div class="bill-r tot"><span>' + esc(t('payNow')) + '</span><span class="num">' + money(q.feeNow) + '</span></div><div class="bill-r"><span>' + esc(t('wagesYou')) + '</span><span class="num">' + money(q.wagesYou) + '</span></div>') +
-      '</div><span class="small muted">' + esc(t('platformNote')) + '</span>' +
-      errBox() + '<button type="button" class="btn primary wide" data-a="book"' + (S.busy ? ' disabled' : '') + '>' + esc(t('confirm')) + '</button>';
+      '</div><span class="small muted">' + esc(t('platformNote')) + '</span>' + termsTick('bterms') +
+      errBox() + '<button type="button" class="btn primary wide" data-a="book"' + (S.busy || !S.f.bterms ? ' disabled' : '') + '>' + esc(t('confirm')) + '</button>';
   } else {
     h += '<span>' + esc(t('pickWorkersFirst')) + '</span>';
   }
@@ -420,13 +428,15 @@ function renderWorker() {
   if (S.wtab === 'jobs') {
     if (member && w.avail_status === 'unavailable') h += empty(t('notAvailableNote'));
     else if (!member) h += '<div class="empty"><p style="margin:0">' + esc(t('needMember')) + '</p><button type="button" class="btn primary" data-a="wtab" data-v="member">' + esc(t('startMem')) + '</button></div>';
-    else h += S.data.jobs.length ? S.data.jobs.map(b => '<section class="card offer"><h3>' + esc(bSkill(b)) + '</h3><span class="small">' + esc(b.site) + ' · ' + esc(t('starts')) + ' ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + '</span>' +
+    else h += (S.data.jobs.length ? '<section class="card">' + termsTick('wterms') + '</section>' : '') + (S.data.jobs.length ? S.data.jobs.map(b => '<section class="card offer"><h3>' + esc(bSkill(b)) + '</h3><span class="small">' + esc(b.site) + ' · ' + esc(t('starts')) + ' ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + '</span>' +
       '<div class="kv"><span class="big num">' + money(b.wage) + '<span class="small muted">' + esc(t('perDayShort')) + '</span></span><span class="pill p-blue">' + esc(t('needed', { n: b.needed })) + '</span></div>' +
       '<div class="row" style="gap:6px">' + builderBadge(b.builder) + '<span class="small">' + esc(b.company) + '</span>' + (b.distanceKm != null ? '<span class="pill p-blue">' + esc(t('kmAway', { d: b.distanceKm })) + '</span>' : '') + '</div>' +
+      (b.travel_per_day ? '<span class="pill p-green" style="align-self:flex-start">+ ' + esc(t('travelPerDay', { t: money(b.travel_per_day) })) + '</span>' : '') +
       '<span class="small">' + esc(t('reportBy', { t: b.report_time || '09:00' })) + '</span>' +
       addressBlock(b, true) +
       '<span class="small" style="color:var(--green-ink)">' + esc(b.pay_mode === 'lk' ? t('paidLK') : t('paidDirect')) + '</span>' +
-      '<button type="button" class="btn blue wide" data-a="accept" data-b="' + esc(b.id) + '">' + esc(t('accept')) + '</button><div class="row" style="justify-content:flex-end">' + blockBtn(b.contractor_id) + '</div></section>').join('') : empty(t('noJobs'));
+      askStatus(b) +
+      '<button type="button" class="btn blue wide" data-a="accept" data-b="' + esc(b.id) + '"' + (S.f.wterms ? '' : ' disabled') + '>' + esc(t('accept')) + ' · ' + money(b.wage) + esc(t('perDayShort')) + '</button>' + askForm(b) + '<div class="row" style="justify-content:flex-end">' + blockBtn(b.contractor_id) + '</div></section>').join('') : empty(t('noJobs')));
   }
   if (S.wtab === 'work') {
     h += S.data.work.length ? S.data.work.map(b => '<section class="card"><h3>' + esc(bSkill(b)) + '</h3><span class="small muted">' + esc(b.site) + ' · ' + esc(fmtDate(b.start_date)) + ' · ' + esc(b.days) + ' ' + esc(t('daysW')) + '</span>' +
@@ -442,7 +452,7 @@ function renderWorker() {
         : '<b class="small">' + esc(t('gotPaid')) + '</b><div class="grid2"><button type="button" class="btn danger small" data-a="paid" data-b="' + esc(b.id) + '" data-v="no">' + esc(t('no')) + '</button><button type="button" class="btn blue small" data-a="paid" data-b="' + esc(b.id) + '" data-v="yes">' + esc(t('yes')) + '</button></div>') : '') + '</section>').join('') : empty(t('noWork'));
   }
   if (S.wtab === 'earn') {
-    const total = S.data.work.reduce((a, b) => a + b.wage * b.days, 0), earned = S.data.work.reduce((a, b) => a + (b.pay ? b.pay.earned : 0), 0);
+    const total = S.data.work.reduce((a, b) => a + (b.wage + (b.travel || 0)) * b.days, 0), earned = S.data.work.reduce((a, b) => a + (b.pay ? b.pay.earned : 0), 0);
     h += '<div class="grid2"><section class="card hero"><span class="muted small">' + esc(t('earnedSoFar')) + '</span><span class="big num">' + money(earned) + '</span><span class="small muted">' + esc(t('earnedNote')) + '</span></section>' +
       '<section class="card"><span class="muted small">' + esc(t('totalEarn')) + '</span><span class="big num">' + money(total) + '</span></section></div>' +
       '<section class="card"><div class="list">' + (S.data.work.length ? S.data.work.map(b => '<div class="li"><div class="grow"><b>' + esc(bSkill(b)) + '</b><div class="small muted">' + esc(b.site) + ' · ' + esc(t('daysWorked', { d: b.pay ? b.pay.payDays : 0 })) + ' / ' + esc(b.days) + ' × ' + money(b.wage) + '</div></div><b class="num">' + money(b.pay ? b.pay.earned : 0) + '</b></div>').join('') : '<p class="muted" style="margin:0">' + esc(t('noWork')) + '</p>') + '</div></section>';
@@ -723,6 +733,27 @@ function fillWorkerForm() {
   S.f.wskills = {}; w.skills.forEach(id => { S.f.wskills[id] = true; });
 }
 
+// ================= terms =================
+function termsTick(key) {
+  return '<div class="terms"><button type="button" class="tick" data-a="tickTerms" data-v="' + key + '" aria-pressed="' + !!S.f[key] + '"><span class="box" aria-hidden="true">' + (S.f[key] ? '✓' : '') + '</span><span>' + esc(t('termsTick')) + '</span></button>' +
+    '<button type="button" class="linkbtn" data-a="showTerms">' + esc(t('termsRead')) + '</button></div>';
+}
+function showTerms() {
+  showModal('<h2>' + esc(t('termsTitle')) + '</h2><div class="termsbody">' + t('termsText').split('\n').map(p => '<p>' + esc(p) + '</p>').join('') + '</div>' +
+    '<button type="button" class="btn primary" data-a="closeTerms">' + esc(t('termsOk')) + '</button>');
+  modalHandlers.closeTerms = () => closeModal();
+}
+// Builder: workers asking for more money on an open booking line.
+function asksBlock(b) {
+  if (!b.asks || !b.asks.length || b.status !== 'open') return '';
+  return '<div class="panel"><b>' + esc(t('asksTitle', { n: b.asks.length })) + '</b>' + b.asks.map(w => workerMatchCard(Object.assign({}, w, { wage: null }),
+    '') + '<div class="askbox"><div class="kv small"><span>' + esc(t('askStd', { w: money(w.stdWage), t: money(b.travel_per_day || 0) })) + '</span></div>' +
+    '<div class="kv"><b>' + esc(t('askWants')) + '</b><b class="num">' + money(w.askWage) + esc(t('perDayShort')) + ' + ' + money(w.askTravel) + ' ' + esc(t('travelShort')) + '</b></div>' +
+    (w.askNote ? '<div class="small">“' + esc(w.askNote) + '”</div>' : '') +
+    '<div class="small muted">' + esc(t('askExtra', { a: money(((w.askWage - w.stdWage) + (w.askTravel - (b.travel_per_day || 0))) * b.days) })) + '</div>' +
+    '<div class="row"><button type="button" class="btn blue small" data-a="askYes" data-v="' + esc(w.askId) + '">' + esc(t('askAccept')) + '</button><button type="button" class="btn ghost small" data-a="askNo" data-v="' + esc(w.askId) + '">' + esc(t('askDecline')) + '</button></div></div>').join('') + '</div>';
+}
+
 // ================= Phase 2 screens =================
 const stars = (n) => n == null ? '' : '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
 function relLine(rel, rt) {
@@ -843,7 +874,7 @@ function renderRegister(b) {
           '<option value="">—</option>' + ['present', 'late', 'absent'].map(s => '<option value="' + s + '"' + (x.status === s ? ' selected' : '') + '>' + esc(t(s)) + '</option>').join('') + '</select>' +
           '<input class="in sm num" type="number" min="0" max="12" step="0.5" placeholder="' + esc(t('otH')) + '" aria-label="' + esc(t('otH') + ' ' + d) + '" value="' + esc(x.ot_hours ? x.ot_hours : '') + '" data-ot="' + esc(b.id) + '" data-w="' + esc(m.worker_id) + '" data-d="' + d + '"' + (locked || !x.status || x.status === 'absent' ? ' disabled' : '') + '></div>';
       }).join('') + '</div>' +
-      '<div class="kv small"><span>' + esc(t('regSum', { d: m.pay.payDays, w: money(m.pay.wage), h: m.pay.otHours, r: money(m.pay.otRate) })) + '</span><b class="num">' + money(m.pay.earned) + '</b></div>' +
+      '<div class="kv small"><span>' + esc(t('regSum', { d: m.pay.payDays, w: money(m.pay.wage), h: m.pay.otHours, r: money(m.pay.otRate) })) + (m.pay.travel ? ' + ' + esc(t('regTravel', { d: m.pay.payDays, t: money(m.pay.travel) })) : '') + '</span><b class="num">' + money(m.pay.earned) + '</b></div>' +
       (locked ? '' : '<button type="button" class="btn blue small" style="align-self:flex-start" data-a="finalise" data-b="' + esc(b.id) + '" data-w="' + esc(m.worker_id) + '">' + esc(t('finaliseBtn', { a: money(m.pay.earned) })) + '</button>') + '</div>';
   }
   return h + '<span class="small muted">' + esc(t('finaliseNote')) + '</span></div>';
@@ -949,12 +980,34 @@ function renderLevel(w) {
       : '<button type="button" class="btn ghost small" data-a="askDispute" data-v="' + esc(x.booking_id) + '">' + esc(t('disputeBtn')) + '</button>') : '') + '</div>').join('') + '</div>';
   return h + '<span class="small muted">' + esc(t('ratingsNote')) + '</span></section>';
 }
+// Worker: ask the builder for more money on a job offer.
+function askStatus(b) {
+  const a = b.myAsk; if (!a) return '';
+  const what = money(a.wage) + t('perDayShort') + ' + ' + money(a.travel) + ' ' + t('travelShort');
+  if (a.status === 'pending') return '<div class="status s-warn">' + esc(t('askPending', { a: what })) + '</div>';
+  if (a.status === 'declined') return '<div class="status s-err">' + esc(t('askWasDeclined', { w: money(b.wage) })) + '</div>';
+  return '';
+}
+function askForm(b) {
+  const a = b.myAsk;
+  if (a && (a.status === 'pending' || a.status === 'declined')) return '';
+  if (S.askFor !== b.id) return '<button type="button" class="btn ghost wide" data-a="askOpen" data-b="' + esc(b.id) + '">💬 ' + esc(t('askMore')) + '</button>';
+  const f = S.f.ask;
+  return '<div class="panel"><b>' + esc(t('askMore')) + '</b><span class="small muted">' + esc(t('askHelp', { w: money(b.wage) })) + '</span><div class="grid2">' +
+    '<label class="f" for="ask-w">' + esc(t('askWage')) + '<input id="ask-w" class="in num" type="number" min="' + b.wage + '" ' + P('f.ask.wage', f.wage) + '></label>' +
+    '<label class="f" for="ask-t">' + esc(t('askTravel')) + '<input id="ask-t" class="in num" type="number" min="0" ' + P('f.ask.travel', f.travel) + '></label></div>' +
+    '<label class="f" for="ask-n">' + esc(t('askNote')) + '<input id="ask-n" class="in" maxlength="200" placeholder="' + esc(t('askNotePh')) + '" ' + P('f.ask.note', f.note) + '></label>' +
+    '<div class="row"><button type="button" class="btn primary" data-a="sendAsk" data-b="' + esc(b.id) + '"' + (S.f.wterms ? '' : ' disabled') + '>' + esc(t('askSend')) + '</button><button type="button" class="btn ghost" data-a="askClose">' + esc(t('cancel')) + '</button></div></div>';
+}
 // Worker: extras on a job in My work
 function workExtras(b) {
   let h = builderBadge(b.builder);
+  h += '<div class="kv small"><span>' + esc(t(b.agreed ? 'agreedPay' : 'yourPay')) + '</span><b class="num">' + money(b.wage) + esc(t('perDayShort')) + (b.travel ? ' + ' + money(b.travel) + ' ' + esc(t('travelShort')) : '') + '</b></div>';
+  if (b.agreed && b.pay_mode === 'lk') h += '<span class="small muted">' + esc(t('agreedExtraNote')) + '</span>';
+  if (b.auto_assigned && !b.confirmed_at) h += '<div class="status s-warn">' + esc(t('autoAssignedNote')) + '</div>';
   const soon = b.start_date >= istDate(0) && b.start_date <= istDate(2);
   if (b.confirmed_at) h += ' <span class="pill p-green">' + esc(t('youConfirmed')) + '</span>';
-  else if (soon) h += '<button type="button" class="btn primary wide" data-a="confirmJob" data-b="' + esc(b.id) + '">✓ ' + esc(t('iWillCome', { t: b.report_time || '09:00' })) + '</button>';
+  else if ((soon || !b.terms_ok) && b.end_date >= istDate(0)) h += (b.terms_ok ? '' : termsTick('wterms')) + '<button type="button" class="btn primary wide" data-a="confirmJob" data-b="' + esc(b.id) + '"' + (b.terms_ok || S.f.wterms ? '' : ' disabled') + '>✓ ' + esc(t('iWillCome', { t: b.report_time || '09:00' })) + '</button>';
   if (b.report_time) h += '<span class="small">' + esc(t('reportBy', { t: b.report_time })) + '</span>';
   if (b.register && b.register.length) h += '<details class="small"><summary>' + esc(t('myRegister', { n: b.register.length })) + '</summary><div class="list">' + b.register.map(x => '<div class="li" style="padding:6px 0"><span class="grow num">' + esc(fmtDate(x.date)) + '</span><span>' + esc(t(x.status)) + (x.ot_hours ? ' + ' + x.ot_hours + 'h OT' : '') + '</span></div>').join('') + '</div></details>';
   if (b.pay && b.pay.finalAt) h += '<div class="status s-ok">' + esc(t('wagesFinalW', { a: money(b.pay.finalAmount) })) + '</div>';
@@ -1012,6 +1065,10 @@ document.addEventListener('click', (ev) => {
     changeNumber: () => { S.login = { phone: S.login.phone, code: '', sent: false, devCode: '' }; },
     askCancel: () => { S.confirmCancel = bid; }, noCancel: () => { S.confirmCancel = ''; },
     askDel: () => { S.confirmDel = v; }, noDel: () => { S.confirmDel = ''; },
+    tickTerms: () => { S.f[v] = !S.f[v]; },
+    showTerms: () => { showTerms(); },
+    askOpen: () => { const j = S.data.jobs.find(x => x.id === bid); S.askFor = bid; S.f.ask = { wage: j ? String(j.wage + 100) : '', travel: j ? String(j.travel_per_day || 0) : '', note: '' }; },
+    askClose: () => { S.askFor = ''; },
     askBlock: () => { S.confirmBlock = v; }, noBlock: () => { S.confirmBlock = ''; },
     pfToggle: () => { S.pf[v] = !S.pf[v]; }, wsToggle: () => { S.ws[v] = !S.ws[v]; },
     repUrgent: () => { S.rep.urgent = !S.rep.urgent; },
@@ -1055,22 +1112,33 @@ document.addEventListener('click', (ev) => {
     applyCoupon: async () => { const r = await api('POST', '/api/coupon/apply', { code: S.f.couponCode || '' }); S.f.couponCode = ''; toast(t('couponApplied', { c: r.coupon.label })); await refresh(); },
     book: async () => {
       const f = S.f;
-      const r = await api('POST', '/api/contractor/bookings', { lines: Object.keys(f.qty).map(k => ({ skillId: k, count: f.qty[k] })), days: f.days, level: f.level, qc: f.qc, payMode: f.pay, site: f.site, siteAddress: f.siteAddress, siteLat: f.lat, siteLng: f.lng, startDate: f.start, reportTime: f.reportTime, otRate: f.otRate === '' ? null : n0(f.otRate), preferWorkers: f.prefer.map(p => p.id) });
+      const r = await api('POST', '/api/contractor/bookings', { lines: Object.keys(f.qty).map(k => ({ skillId: k, count: f.qty[k] })), days: f.days, level: f.level, qc: f.qc, payMode: f.pay, site: f.site, siteAddress: f.siteAddress, siteLat: f.lat, siteLng: f.lng, startDate: f.start, reportTime: f.reportTime, otRate: f.otRate === '' ? null : n0(f.otRate), preferWorkers: f.prefer.map(p => p.id), travelPerDay: n0(f.travel), acceptTerms: !!f.bterms });
       if (r.payment) { const ok = await pay(r.payment, t('tBook')); if (!ok) { S.ctab = 'bookings'; await refresh(); return; } }
-      toast(t('bookingSent')); Object.assign(S.f, { qty: {}, site: '', siteAddress: '', lat: null, lng: null, prefer: [], otRate: '' }); S.ctab = 'bookings'; await refresh();
+      toast(t('bookingSent')); Object.assign(S.f, { qty: {}, site: '', siteAddress: '', lat: null, lng: null, prefer: [], otRate: '', travel: '' }); S.ctab = 'bookings'; await refresh();
     },
     pickWorkers: async () => { await loadPick(bid); },
     selectWorker: async () => { await api('POST', '/api/contractor/bookings/' + bid + '/select', { workerId: b.getAttribute('data-w') }); toast(t('workerSelected')); await loadTab(); if (S.pick.id && !S.pick.needed) S.pick = { id: '', list: [], needed: 0 }; },
     toggleAvail: async () => { await api('POST', '/api/worker/availability', { available: S.me.worker.available === 0 }); await refresh(); },
     checkin: async () => { await api('POST', '/api/worker/work/' + bid + '/checkin'); toast(t('checkinSent')); await loadTab(); },
     declineJob: async () => { await api('POST', '/api/worker/work/' + bid + '/decline'); S.confirmDecline = ''; toast(t('declinedToast')); await loadTab(); },
+    askYes: async () => { await api('POST', '/api/contractor/counters/' + v + '/accept'); toast(t('askAcceptedToast')); await loadTab(); },
+    askNo: async () => { await api('POST', '/api/contractor/counters/' + v + '/decline'); toast(t('askDeclinedToast')); await loadTab(); },
+    sendAsk: async () => {
+      if (!S.f.wterms) throw new Error(t('err_terms_required'));
+      const a = S.f.ask;
+      await api('POST', '/api/worker/jobs/' + bid + '/ask', { wage: n0(a.wage), travel: a.travel === '' ? undefined : n0(a.travel), note: a.note, acceptTerms: true });
+      S.askFor = ''; toast(t('askSentToast')); await loadTab();
+    },
     payBooking: async () => { const r = await api('POST', '/api/contractor/bookings/' + bid + '/pay'); if (await pay(r.payment, t('tBook'))) toast(t('bookingSent')); await refresh(); },
     att: async () => { await api('POST', '/api/contractor/bookings/' + bid + '/attendance', { workerId: b.getAttribute('data-w'), status: v }); await loadTab(); },
-    replace: async () => { await api('POST', '/api/contractor/bookings/' + bid + '/replace', { workerId: b.getAttribute('data-w') }); toast(t('replaceAsked')); await loadTab(); },
+    replace: async () => { const r = await api('POST', '/api/contractor/bookings/' + bid + '/replace', { workerId: b.getAttribute('data-w') }); toast(r.replacedBy ? t('autoReplacedToast', { n: r.replacedBy }) : t('replaceAsked')); await loadTab(); },
     cancelBooking: async () => { const r = await api('POST', '/api/contractor/bookings/' + bid + '/cancel'); S.confirmCancel = ''; if (r.refundNeeded) toast(t('refundNote')); await loadTab(); },
     startPlan: async () => { const r = await api('POST', '/api/contractor/plan'); await pay(r.payment, t('planTitle')); await refresh(); },
     cancelPlan: async () => { await api('POST', '/api/contractor/plan/cancel'); await refresh(); },
-    accept: async () => { await api('POST', '/api/worker/jobs/' + bid + '/accept'); toast(t('accepted')); S.wtab = 'work'; await loadTab(); },
+    accept: async () => {
+      if (!S.f.wterms) throw new Error(t('err_terms_required'));
+      await api('POST', '/api/worker/jobs/' + bid + '/accept', { acceptTerms: true }); toast(t('accepted')); S.wtab = 'work'; await loadTab();
+    },
     paid: async () => { await api('POST', '/api/worker/work/' + bid + '/paid', { received: v === 'yes' }); await loadTab(); },
     startMem: async () => { const r = await api('POST', '/api/worker/membership', { method: S.f.memMethod }); if (r.payment) await pay(r.payment, t('memTitle')); await refresh(); },
     cancelMem: async () => { await api('POST', '/api/worker/membership/cancel'); await refresh(); },
@@ -1110,7 +1178,7 @@ document.addEventListener('click', (ev) => {
       const names = {}; S.data.bookings.forEach(bk => (bk.team || []).forEach(m => { names[m.worker_id] = m.name; }));
       const qty = {}; r.lines.forEach(l => { qty[l.skillId] = (qty[l.skillId] || 0) + l.count; });
       Object.assign(S.f, { qty, site: r.site, siteAddress: r.siteAddress || '', lat: r.siteLat, lng: r.siteLng, days: r.days, level: r.level, qc: r.qc, pay: r.payMode,
-        reportTime: r.reportTime || '09:00', otRate: r.otRate == null ? '' : r.otRate, start: istDate(1), prefer: r.preferWorkers.map(id => ({ id, name: names[id] || '…' })) });
+        reportTime: r.reportTime || '09:00', otRate: r.otRate == null ? '' : r.otRate, travel: r.travelPerDay || '', start: istDate(1), prefer: r.preferWorkers.map(id => ({ id, name: names[id] || '…' })) });
       S.ctab = 'book'; await loadAvailability(); toast(t('againToast')); window.scrollTo(0, 0);
     },
     bookTeam: async () => {
@@ -1147,7 +1215,11 @@ document.addEventListener('click', (ev) => {
       toast(t('homeSaved')); await refresh();
     },
     setRadius: async () => { await api('POST', '/api/worker/location', { radiusKm: n0(v), keepLocation: true }); toast(t('saved')); await refresh(); },
-    confirmJob: async () => { await api('POST', '/api/worker/work/' + bid + '/confirm'); toast(t('confirmedToast')); await loadTab(); },
+    confirmJob: async () => {
+      const job = S.data.work.find(x => x.id === bid);
+      if (job && !job.terms_ok && !S.f.wterms) throw new Error(t('err_terms_required'));
+      await api('POST', '/api/worker/work/' + bid + '/confirm', { acceptTerms: !!S.f.wterms }); toast(t('confirmedToast')); await loadTab();
+    },
     sendDispute: async () => { await api('POST', '/api/worker/ratings/' + v + '/dispute', { text: S.f.disputeText }); S.disputeFor = ''; S.f.disputeText = ''; toast(t('disputeSentToast')); await loadTab(); },
     resolveRep: async () => {
       const el = document.getElementById('res-' + v);
@@ -1164,7 +1236,7 @@ document.addEventListener('input', (ev) => {
   const lf = el.getAttribute('data-lf'); if (lf) { S.login[lf] = el.value; return; }
   const af = el.getAttribute('data-af'); if (af) { S.adm[af] = el.value; return; }
   const pp = el.getAttribute('data-p'); if (pp && el.tagName !== 'SELECT') { setPath(pp, el.value); if (pp === 'q' || pp.startsWith('pf.')) render(); return; }
-  const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; return; }
+  const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; if (k === 'travel') render(); return; }
   const c = el.getAttribute('data-cfg'); if (c) { S.cfgDraft = Object.assign({}, S.cfgDraft || S.admin.settings); S.cfgDraft[c] = n0(el.value); }
 });
 document.addEventListener('change', (ev) => {

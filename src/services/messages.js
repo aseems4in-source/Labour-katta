@@ -99,6 +99,24 @@ const TEMPLATES = {
     hi: 'लेबर कट्टा ज़रूरी शिकायत ({{1}}) {{2}} से: {{3}}',
     mr: 'लेबर कट्टा तातडीची तक्रार ({{1}}) {{2}} कडून: {{3}}',
   },
+  counterOffer: {
+    params: ['name', 'skill', 'site', 'wage', 'travel'],
+    en: 'Labour Katta: {{1}} ({{2}}) wants to work at {{3}} for {{4}} per day + {{5}} travel per day. Open the app to accept or decline.',
+    hi: 'लेबर कट्टा: {{1}} ({{2}}) {{3}} पर रोज़ {{4}} + रोज़ {{5}} यात्रा खर्च पर काम करना चाहते हैं। स्वीकार या मना करने के लिए ऐप खोलें।',
+    mr: 'लेबर कट्टा: {{1}} ({{2}}) {{3}} येथे दररोज {{4}} + दररोज {{5}} प्रवास खर्चावर काम करू इच्छितात. स्वीकारण्यासाठी किंवा नाकारण्यासाठी ॲप उघडा.',
+  },
+  counterDeclined: {
+    params: ['site', 'wage'],
+    en: 'Labour Katta: The builder at {{1}} could not agree to more money. You can still take the job at {{2}} per day in the app.',
+    hi: 'लेबर कट्टा: {{1}} के बिल्डर ज़्यादा पैसे पर राज़ी नहीं हुए। आप ऐप में रोज़ {{2}} पर अब भी काम ले सकते हैं।',
+    mr: 'लेबर कट्टा: {{1}} चे बिल्डर जास्त पैशांवर तयार झाले नाहीत. तुम्ही ॲपमध्ये दररोज {{2}} वर अजूनही काम घेऊ शकता.',
+  },
+  autoReplaced: {
+    params: ['old', 'new', 'site'],
+    en: 'Labour Katta: {{1}} cannot come to {{3}}. {{2}} has been put on the job instead, at no extra cost to you. Open the app to see the phone number.',
+    hi: 'लेबर कट्टा: {{1}} {{3}} नहीं आ पाएँगे। उनकी जगह {{2}} को लगाया गया है, आपको कोई अतिरिक्त ख़र्च नहीं। फ़ोन नंबर के लिए ऐप खोलें।',
+    mr: 'लेबर कट्टा: {{1}} {{3}} येथे येऊ शकत नाहीत. त्यांच्या जागी {{2}} यांना नेमले आहे, तुम्हाला कोणताही जादा खर्च नाही. फोन नंबरसाठी ॲप उघडा.',
+  },
   paymentIssue: {
     params: ['worker', 'site'],
     en: 'Labour Katta admin: {{1}} reported NOT receiving direct payment for {{2}}. Please call the contractor.',

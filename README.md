@@ -117,3 +117,13 @@ docs/                    WhatsApp template texts
   - An admin "Reports & disputes" tab, plus a new supervisor permission for it.
 
 The scheduler runs inside the web server every 5 minutes. Set `DISABLE_SCHEDULER=1` to turn it off.
+
+## Asking for more money, travel money, automatic replacement, terms
+
+- **Ask for more money:** on a job offer, a worker can ask for a higher daily wage (up to 3× the offer) and/or more travel money, with a note. The builder gets a WhatsApp message and Accept / Decline in the app.
+  - On Accept, the worker is booked at the agreed amounts. If the builder paid through Labour Katta, they pay the agreed extra directly to the worker.
+  - On Decline, the worker is told and can still accept at the normal wage.
+- **Travel money:** set per worker per day on the booking form. It shows as its own line in the cost breakdown, register and earnings.
+- **Additional hourly charges:** paid for extra hours (₹ per hour) entered in the attendance register.
+- **Automatic replacement:** when a worker says they can't come, or the builder taps Replace, the next best free worker is put on at the standard wage, at no extra cost to the builder. If nobody is free, the job is offered to everyone as before.
+- **Terms:** builders tick them before confirming a booking. Workers tick them before accepting, asking for more, or confirming a job they were put on. The full terms are in `public/i18n.js` (`termsText`). Have a lawyer review them.

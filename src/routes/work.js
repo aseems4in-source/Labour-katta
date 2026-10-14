@@ -28,7 +28,10 @@ r.get('/contractor/bookings', auth.requireRole('contractor'), (req, res) => {
         today: w.today, checkin: w.checkin, v: domain.vFlags(w), pay, myRating: rt, favourite: fav, reliability: quality.reliability(w.worker_id), rating: quality.ratingOf(w.worker_id) };
     });
     const end = domain.endDate(b);
-    return Object.assign(b, { team: t, wagesEarned: t.reduce((s, w) => s + w.pay.earned, 0), end_date: end, ended: end <= today, started: b.start_date <= today, otRateEff: domain.otRate(b, b.wage) });
+    const asks = db.prepare(`SELECT o.id, o.wage, o.travel, o.note, o.created_at, w.* FROM counter_offers o JOIN workers w ON w.user_id = o.worker_id
+      WHERE o.booking_id = ? AND o.status = 'pending' ORDER BY o.created_at`).all(b.id)
+      .map(o => Object.assign(domain.workerCard(o, b, req.user.id, b), { askId: o.id, askWage: o.wage, askTravel: o.travel, askNote: o.note, stdWage: domain.workerDailyWage(o, b) }));
+    return Object.assign(b, { team: t, asks, wagesEarned: t.reduce((s, w) => s + w.pay.earned, 0), end_date: end, ended: end <= today, started: b.start_date <= today, otRateEff: domain.otRate(b, b.wage) });
   }) });
 });
 
@@ -78,10 +81,15 @@ r.post('/contractor/bookings/:id/replace', auth.requireRole('contractor'), async
     db.prepare("UPDATE assignments SET status = 'replaced' WHERE booking_id = ? AND worker_id = ?").run(b.id, req.body.workerId);
     db.prepare("UPDATE bookings SET status = 'open' WHERE id = ? AND status = 'assigned'").run(b.id);
   })();
-  const c = domain.getContractor(req.user.id);
-  if (domain.contractorPlanActive(c)) await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'replacement', params: { site: b.site } });
-  await domain.broadcastJobOffer(db.prepare('SELECT * FROM bookings WHERE id = ?').get(b.id));
-  res.json({ ok: true });
+  // Put the next best free worker on straight away, at the standard wage (no extra cost). Otherwise offer the job to everyone.
+  const old = domain.getWorker(req.body.workerId);
+  const replaced = await domain.autoReplace(b.id, old ? old.name : '');
+  if (!replaced) {
+    const c = domain.getContractor(req.user.id);
+    if (domain.contractorPlanActive(c)) await wa.sendTemplate({ userId: c.user_id, phone: c.phone, lang: c.lang, templateKey: 'replacement', params: { site: b.site } });
+    await domain.broadcastJobOffer(db.prepare('SELECT * FROM bookings WHERE id = ?').get(b.id));
+  }
+  res.json({ ok: true, replacedBy: replaced ? replaced.name : null });
 });
 
 r.post('/contractor/bookings/:id/cancel', auth.requireRole('contractor'), async (req, res) => {
@@ -120,26 +128,28 @@ r.get('/worker/jobs', auth.requireRole('worker'), (req, res) => {
     site_address: b.site_address, site_lat: b.site_lat, site_lng: b.site_lng,
     pay_mode: b.pay_mode, company: b.company, wage: domain.workerDailyWage(w, b), needed: b.count - domain.activeCount(b.id),
     report_time: b.report_time, contractor_id: b.contractor_id, builder: quality.cFlags(domain.getContractor(b.contractor_id)),
-    distanceKm: quality.distanceKm(w.home_lat, w.home_lng, b.site_lat, b.site_lng),
+    distanceKm: quality.distanceKm(w.home_lat, w.home_lng, b.site_lat, b.site_lng), travel_per_day: b.travel_per_day || 0,
+    myAsk: db.prepare("SELECT id, wage, travel, note, status FROM counter_offers WHERE booking_id = ? AND worker_id = ? ORDER BY created_at DESC LIMIT 1").get(b.id, w.user_id) || null,
   }));
   res.json({ jobs });
 });
 
 r.post('/worker/jobs/:id/accept', auth.requireRole('worker'), async (req, res) => {
-  const out = await domain.acceptJob(req.user.id, req.params.id);
+  const out = await domain.acceptJob(req.user.id, req.params.id, req.body && req.body.acceptTerms === true);
   res.json(Object.assign({ ok: true }, out));
 });
 
 r.get('/worker/work', auth.requireRole('worker'), (req, res) => {
   const w = domain.getWorker(req.user.id);
   if (!w) return res.json({ work: [] });
-  const rows = db.prepare(`SELECT b.*, a.paid_confirmation, a.confirmed_at, c.company, u.phone AS contractor_phone FROM assignments a
+  const rows = db.prepare(`SELECT b.*, a.paid_confirmation, a.confirmed_at, a.wage_agreed, a.travel_agreed, a.terms_accepted_at AS a_terms, a.auto_assigned, c.company, u.phone AS contractor_phone FROM assignments a
     JOIN bookings b ON b.id = a.booking_id JOIN contractors c ON c.user_id = b.contractor_id JOIN users u ON u.id = b.contractor_id
     WHERE a.worker_id = ? AND a.status = 'active' AND b.status != 'cancelled' ORDER BY b.start_date DESC LIMIT 200`).all(w.user_id);
   res.json({ work: rows.map(b => ({
     id: b.id, skill_en: b.skill_en, skill_hi: b.skill_hi, skill_mr: b.skill_mr, site: b.site, start_date: b.start_date, days: b.days,
     site_address: b.site_address, site_lat: b.site_lat, site_lng: b.site_lng,
-    pay_mode: b.pay_mode, company: b.company, contractor_phone: b.contractor_phone, wage: domain.workerDailyWage(w, b), paid_confirmation: b.paid_confirmation,
+    pay_mode: b.pay_mode, company: b.company, contractor_phone: b.contractor_phone, wage: b.wage_agreed != null ? b.wage_agreed : domain.workerDailyWage(w, b), paid_confirmation: b.paid_confirmation,
+    travel: b.travel_agreed != null ? b.travel_agreed : (b.travel_per_day || 0), agreed: b.wage_agreed != null || b.travel_agreed != null, terms_ok: Boolean(b.a_terms), auto_assigned: b.auto_assigned,
     pay: domain.attendancePay(b.id, w.user_id, domain.workerDailyWage(w, b)),
     today: (db.prepare('SELECT status FROM attendance WHERE booking_id = ? AND worker_id = ? AND date = ?').get(b.id, w.user_id, todayIST()) || {}).status || null,
     checkin: (db.prepare('SELECT at FROM checkins WHERE booking_id = ? AND worker_id = ? AND date = ?').get(b.id, w.user_id, todayIST()) || {}).at || null,
@@ -182,8 +192,17 @@ r.post('/worker/availability', auth.requireRole('worker'), (req, res) => {
   res.json({ ok: true });
 });
 r.post('/worker/work/:id/decline', auth.requireRole('worker'), async (req, res) => {
-  await domain.declineJob(req.user.id, req.params.id);
-  res.json({ ok: true });
+  const out = await domain.declineJob(req.user.id, req.params.id);
+  res.json(Object.assign({ ok: true }, out));
+});
+// Ask the builder for a higher daily wage and/or travel money.
+r.post('/worker/jobs/:id/ask', auth.requireRole('worker'), async (req, res) => {
+  const row = await domain.askForMore(req.user.id, req.params.id, req.body || {});
+  res.json({ ok: true, id: row.id });
+});
+r.post('/contractor/counters/:id/:decision', auth.requireRole('contractor'), async (req, res) => {
+  if (!['accept', 'decline'].includes(req.params.decision)) throw new HttpError(404, 'Not found', 'not_found');
+  res.json(Object.assign({ ok: true }, await domain.decideCounter(req.user.id, req.params.id, req.params.decision === 'accept')));
 });
 
 r.post('/worker/work/:id/paid', auth.requireRole('worker'), async (req, res) => {

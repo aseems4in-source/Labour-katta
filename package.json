@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/smoke.test.js && node test/phase2.test.js"
+    "test": "node test/smoke.test.js && node test/phase2.test.js && node test/phase3.test.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

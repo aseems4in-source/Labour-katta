@@ -209,3 +209,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--sunk) 45%,transparent)}
 details summary{cursor:pointer;font-weight:600;padding:4px 0}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px}
 @media (max-width:640px){.kpis{grid-template-columns:1fr 1fr;gap:10px}.kpis .card{padding:12px}.kpis .big{font-size:24px}.kpis .lbl{font-size:11px}}
+/* ---- terms, ask for more ---- */
+.terms{display:flex;flex-direction:column;gap:6px}
+.tick{display:flex;gap:10px;align-items:flex-start;text-align:left;background:transparent;border:0;padding:4px 0;cursor:pointer;color:inherit;font-weight:600;font-size:15px;line-height:1.35}
+.tick .box{flex:none;width:26px;height:26px;border-radius:7px;border:2px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800}
+.tick[aria-pressed="true"] .box{background:var(--green);border-color:var(--green);color:#fff}
+.linkbtn{align-self:flex-start;background:transparent;border:0;padding:2px 0 2px 36px;color:inherit;text-decoration:underline;font-weight:600;font-size:14px;cursor:pointer;opacity:.85}
+.termsbody{max-height:60vh;overflow:auto;font-size:15px;line-height:1.5}
+.termsbody p{margin:0 0 10px}
+.askbox{background:var(--surface);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;margin:-2px 0 8px;border-left:4px solid var(--amber)}

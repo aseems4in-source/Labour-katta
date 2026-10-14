@@ -27,6 +27,8 @@ function client(base) {
   const cookies = {};
   return async function call(method, url, body) {
     const cookie = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+    // Tick the terms like the app does, unless a test leaves them unticked on purpose (acceptTerms: false).
+    if (method === 'POST' && /^\/api\/(contractor\/bookings|worker\/jobs\/[^/]+\/(accept|ask)|worker\/work\/[^/]+\/confirm)$/.test(url)) body = Object.assign({ acceptTerms: true }, body || {});
     const res = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: body ? JSON.stringify(body) : undefined });
     for (const c of res.headers.getSetCookie()) { const [kv] = c.split(';'); const i = kv.indexOf('='); const k = kv.slice(0, i), v = kv.slice(i + 1); if (v) cookies[k] = v; else delete cookies[k]; }
     const json = await res.json().catch(() => ({}));

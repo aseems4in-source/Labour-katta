@@ -19,7 +19,7 @@ function ownBooking(req) {
   return b;
 }
 function myAssignment(req) {
-  const row = db.prepare(`SELECT a.*, b.* FROM assignments a JOIN bookings b ON b.id = a.booking_id
+  const row = db.prepare(`SELECT b.*, a.*, a.terms_accepted_at AS a_terms, b.status AS b_status FROM assignments a JOIN bookings b ON b.id = a.booking_id
     WHERE a.booking_id = ? AND a.worker_id = ? AND a.status = 'active'`).get(req.params.id, req.user.id);
   if (!row) throw new HttpError(404, 'Job not found.', 'not_found');
   return row;
@@ -61,8 +61,12 @@ r.post('/worker/location', auth.requireRole('worker'), (req, res) => {
 // "I will come" — answer to the reminder before the job.
 r.post('/worker/work/:id/confirm', auth.requireRole('worker'), (req, res) => {
   const a = myAssignment(req);
-  if (a.status === 'cancelled') throw bad('This booking is cancelled.');
-  db.prepare('UPDATE assignments SET confirmed_at = COALESCE(confirmed_at, ?) WHERE booking_id = ? AND worker_id = ?').run(nowIso(), req.params.id, req.user.id);
+  if (a.b_status === 'cancelled') throw bad('This booking is cancelled.');
+  // Workers put on by the builder or automatically have not ticked the terms yet: they do it here.
+  if (!a.a_terms && req.body.acceptTerms !== true) throw bad('Please tick that you agree to the terms first.', 'terms_required');
+  const now = nowIso();
+  db.prepare('UPDATE assignments SET confirmed_at = COALESCE(confirmed_at, ?), terms_accepted_at = COALESCE(terms_accepted_at, ?) WHERE booking_id = ? AND worker_id = ?').run(now, now, req.params.id, req.user.id);
+  domain.acceptTerms(req.user.id);
   res.json({ ok: true });
 });
 r.get('/worker/ratings', auth.requireRole('worker'), (req, res) => {
@@ -289,7 +293,7 @@ r.get('/contractor/bookings/:id/repeat', auth.requireRole('contractor'), (req, r
   const b = ownBooking(req);
   const lines = domain.groupLines(b.group_id).filter(x => x.status !== 'pending_payment' || x.id === b.id);
   const workers = db.prepare(`SELECT DISTINCT a.worker_id FROM assignments a JOIN bookings x ON x.id = a.booking_id WHERE x.group_id = ? AND a.status = 'active'`).all(b.group_id).map(x => x.worker_id);
-  res.json({ lines: lines.map(l => ({ skillId: l.skill_id, count: l.count })), site: b.site, siteAddress: b.site_address, siteLat: b.site_lat, siteLng: b.site_lng,
+  res.json({ travelPerDay: b.travel_per_day || 0, lines: lines.map(l => ({ skillId: l.skill_id, count: l.count })), site: b.site, siteAddress: b.site_address, siteLat: b.site_lat, siteLng: b.site_lng,
     days: b.days, level: b.level, qc: Boolean(lines.some(l => l.qc)), payMode: b.pay_mode, reportTime: b.report_time, otRate: b.ot_rate, preferWorkers: workers });
 });
 

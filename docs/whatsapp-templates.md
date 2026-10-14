@@ -94,3 +94,11 @@ Until these are approved, the app still records the messages in the WhatsApp out
 | lk_site_notice | Workers on a site | Builder/supervisor sends an urgent message | company, site, text |
 | lk_wages_final | Worker | Builder finalises wages | site, days, amount |
 | lk_urgent_report | Admin phones + site supervisor | Urgent report or accident | category, from, text |
+
+## Ask for more money and automatic replacement
+
+| Template name | Sent to | When | Variables in order |
+|---|---|---|---|
+| lk_counter_offer | Builder | A worker asks for a higher wage and/or travel money | name, skill, site, wage, travel |
+| lk_counter_declined | Worker | The builder declines the request | site, wage |
+| lk_auto_replaced | Builder | A worker says no and another worker is put on at no extra cost | old, new, site |

@@ -201,6 +201,20 @@ const MIGRATIONS = [
    CREATE TABLE blocks (blocker_id TEXT NOT NULL, blocked_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (blocker_id, blocked_id));
    CREATE TABLE reminders (booking_id TEXT NOT NULL, worker_id TEXT NOT NULL, kind TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (booking_id, worker_id, kind));
    CREATE TABLE site_notices (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL, text TEXT NOT NULL, sent_by TEXT NOT NULL, created_at TEXT NOT NULL);`,
+  // 8: travel money, wages agreed by asking for more, terms accepted before taking or booking work.
+  `ALTER TABLE bookings ADD COLUMN travel_per_day INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE bookings ADD COLUMN terms_accepted_at TEXT;
+   ALTER TABLE assignments ADD COLUMN wage_agreed INTEGER;
+   ALTER TABLE assignments ADD COLUMN travel_agreed INTEGER;
+   ALTER TABLE assignments ADD COLUMN terms_accepted_at TEXT;
+   ALTER TABLE assignments ADD COLUMN auto_assigned INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE users ADD COLUMN terms_accepted_at TEXT;
+   CREATE TABLE counter_offers (
+     id TEXT PRIMARY KEY, booking_id TEXT NOT NULL, worker_id TEXT NOT NULL,
+     wage INTEGER NOT NULL, travel INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, decided_at TEXT
+   );
+   CREATE INDEX counter_offers_booking ON counter_offers(booking_id, status);`,
 ];
 
 db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');

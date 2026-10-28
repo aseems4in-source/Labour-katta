@@ -127,3 +127,17 @@ The scheduler runs inside the web server every 5 minutes. Set `DISABLE_SCHEDULER
 - **Additional hourly charges:** paid for extra hours (₹ per hour) entered in the attendance register.
 - **Automatic replacement:** when a worker says they can't come, or the builder taps Replace, the next best free worker is put on at the standard wage, at no extra cost to the builder. If nobody is free, the job is offered to everyone as before.
 - **Terms:** builders tick them before confirming a booking. Workers tick them before accepting, asking for more, or confirming a job they were put on. The full terms are in `public/i18n.js` (`termsText`). Have a lawyer review them.
+
+## Projects marketplace (contractors, professionals, suppliers)
+
+- **Clients:** Builder / Architect / Real-estate developer / Property owner / Contracting firm. They sign up as builders and use the **Projects** tab.
+- **Contractors / professionals:** a third account type, `partner`. They choose from 250 categories in 14 groups, seeded from `src/data/categories.js` and editable in Admin → Categories.
+- **Flow:**
+  1. The client posts a requirement and can invite chosen providers from the directory.
+  2. Matching providers get a WhatsApp lead and send a quote.
+  3. The client compares quotes and awards one, paying the **inspection charge (₹2,000) + platform fee (₹1,000)**. Both are editable in Prices & fees.
+  4. Phone numbers are shared after payment.
+  5. The admin assigns an inspector (a supervisor), who records Passed / Issues found. Both sides are told.
+  6. The client marks the work complete and rates the provider, who can dispute an unfair rating.
+- **Admin tabs:** Projects, Contractors & pros (verification: documents + licence or site visit), and Categories. These need the new "Projects marketplace" permission. Supervisors see "My inspections".
+- **Setting:** `partner_leads_verified_only` = 1 sends leads only to verified providers.

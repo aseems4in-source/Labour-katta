@@ -48,6 +48,7 @@ const PERMS = {
   payments: 'See payments and WhatsApp messages',
   open_portals: 'Open a worker or builder portal',
   disputes: 'Handle reports, disputes and reviews; verify builders',
+  projects: 'Projects marketplace: contractors/professionals, categories, projects and inspections',
 };
 const ALL_PERMS = Object.keys(PERMS);
 

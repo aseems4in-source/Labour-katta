@@ -117,6 +117,30 @@ const TEMPLATES = {
     hi: 'लेबर कट्टा: {{1}} {{3}} नहीं आ पाएँगे। उनकी जगह {{2}} को लगाया गया है, आपको कोई अतिरिक्त ख़र्च नहीं। फ़ोन नंबर के लिए ऐप खोलें।',
     mr: 'लेबर कट्टा: {{1}} {{3}} येथे येऊ शकत नाहीत. त्यांच्या जागी {{2}} यांना नेमले आहे, तुम्हाला कोणताही जादा खर्च नाही. फोन नंबरसाठी ॲप उघडा.',
   },
+  newLead: {
+    params: ['category', 'title', 'city', 'budget'],
+    en: 'Labour Katta – new project for {{1}}: "{{2}}" in {{3}}. Budget: {{4}}. Open the app to send your quote.',
+    hi: 'लेबर कट्टा – {{1}} के लिए नया प्रोजेक्ट: "{{2}}", {{3}} में। बजट: {{4}}। कोटेशन भेजने के लिए ऐप खोलें।',
+    mr: 'लेबर कट्टा – {{1}} साठी नवीन प्रकल्प: "{{2}}", {{3}} मध्ये. बजेट: {{4}}. कोटेशन पाठवण्यासाठी ॲप उघडा.',
+  },
+  quoteReceived: {
+    params: ['company', 'title', 'amount'],
+    en: 'Labour Katta: {{1}} sent a quote of {{3}} for "{{2}}". Open the app to compare quotes.',
+    hi: 'लेबर कट्टा: {{1}} ने "{{2}}" के लिए {{3}} का कोटेशन भेजा। कोटेशन की तुलना के लिए ऐप खोलें।',
+    mr: 'लेबर कट्टा: {{1}} यांनी "{{2}}" साठी {{3}} चे कोटेशन पाठवले. कोटेशनची तुलना करण्यासाठी ॲप उघडा.',
+  },
+  projectAwarded: {
+    params: ['title', 'client', 'phone'],
+    en: 'Labour Katta: Congratulations! You have been awarded "{{1}}" by {{2}}. Client phone: {{3}}. A Labour Katta inspector will check the work.',
+    hi: 'लेबर कट्टा: बधाई! {{2}} ने आपको "{{1}}" का काम दिया है। ग्राहक का फ़ोन: {{3}}। लेबर कट्टा निरीक्षक काम की जाँच करेंगे।',
+    mr: 'लेबर कट्टा: अभिनंदन! {{2}} यांनी तुम्हाला "{{1}}" चे काम दिले आहे. ग्राहकाचा फोन: {{3}}. लेबर कट्टा निरीक्षक कामाची तपासणी करतील.',
+  },
+  inspectionResult: {
+    params: ['title', 'result', 'notes'],
+    en: 'Labour Katta inspection for "{{1}}": {{2}}. Notes: {{3}}',
+    hi: 'लेबर कट्टा निरीक्षण, "{{1}}": {{2}}। टिप्पणी: {{3}}',
+    mr: 'लेबर कट्टा तपासणी, "{{1}}": {{2}}. टिप्पणी: {{3}}',
+  },
   paymentIssue: {
     params: ['worker', 'site'],
     en: 'Labour Katta admin: {{1}} reported NOT receiving direct payment for {{2}}. Please call the contractor.',

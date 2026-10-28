@@ -218,3 +218,13 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 .termsbody{max-height:60vh;overflow:auto;font-size:15px;line-height:1.5}
 .termsbody p{margin:0 0 10px}
 .askbox{background:var(--surface);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;margin:-2px 0 8px;border-left:4px solid var(--amber)}
+/* ---- projects marketplace ---- */
+.partnercard{flex-direction:row;align-items:center;gap:12px}
+.partnercard .ico{font-size:26px}
+.catlist{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:6px 10px;display:flex;flex-direction:column;gap:2px}
+.catlist details{border-bottom:1px solid var(--line);padding:4px 0}
+.catlist details:last-child{border-bottom:0}
+.catlist .chips{padding:6px 0}
+optgroup{font-weight:700}
+textarea{font:inherit;color:inherit}
+@media (max-width:640px){.wcard .qprice{flex-basis:100%;min-width:0 !important;flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center !important}}

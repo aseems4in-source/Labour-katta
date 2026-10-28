@@ -8,6 +8,7 @@ const auth = require('../auth');
 const wa = require('../services/whatsapp');
 const domain = require('../domain');
 const quality = require('../quality');
+const projects = require('../projects');
 const { getContractor, getWorker, workerSkillIds, contractorPlanActive, workerHasAccess, contractorPlanPrice, workerMonthlyPrice, workerCashPrice } = require('../domain');
 
 const r = require('../router')();
@@ -32,16 +33,18 @@ r.post('/auth/verify-otp', otpLimiter, (req, res) => {
   const phone = normalizePhone(req.body.phone);
   if (!phone) throw bad('Enter a valid 10-digit Indian mobile number.', 'bad_phone');
   // portal given = sign-up as worker/builder. No portal = log in: the number decides which screen opens.
-  const portal = ['worker', 'contractor'].includes(req.body.portal) ? req.body.portal : null;
+  const portal = ['worker', 'contractor', 'partner'].includes(req.body.portal) ? req.body.portal : null;
   const existing = db.prepare('SELECT role FROM users WHERE phone = ?').get(phone);
   if (!portal && !(existing && existing.role)) {
     auth.checkOtp(phone, req.body.code, true); // check the code first, so numbers can't be probed
     throw new HttpError(404, 'This number is not registered yet. Please sign up as a Worker or a Builder.', 'not_registered');
   }
   if (portal && existing && existing.role && existing.role !== portal) {
-    throw new HttpError(403, existing.role === 'worker'
-      ? 'This number is registered as a worker. Please use Login as Worker.'
-      : 'This number is registered as a builder. Please use Login as Builder.', 'wrong_portal');
+    throw new HttpError(403, {
+      worker: 'This number is registered as a worker. Please use Login as Worker.',
+      contractor: 'This number is registered as a builder. Please use Login as Builder.',
+      partner: 'This number is registered as a contractor / professional. Please use Login.',
+    }[existing.role], 'wrong_portal');
   }
   auth.checkOtp(phone, req.body.code);
   let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -83,18 +86,23 @@ r.get('/me', (req, res) => {
   if (worker) worker = Object.assign({}, worker, { skills: workerSkillIds(u.id), access: workerHasAccess(worker), monthlyPrice: workerMonthlyPrice(worker, settings), cashPrice: workerCashPrice(worker, settings),
     rating: quality.ratingOf(u.id), reliability: quality.reliability(u.id), nextLevel: quality.nextLevelSteps(worker) });
   if (contractor) contractor.vflags = quality.cFlags(contractor);
+  let partner = null;
+  if (u.role === 'partner') {
+    const pp = projects.getPartner(u.id);
+    if (pp) partner = Object.assign({}, pp, { categories: projects.partnerCategoryIds(u.id), vflags: projects.pFlags(pp), stats: projects.partnerStats(u.id) });
+  }
   const red = db.prepare('SELECT c.code, c.kind, c.value FROM coupon_redemptions r JOIN coupons c ON c.id = r.coupon_id WHERE r.user_id = ?').get(u.id);
   if (contractor) contractor.coupon = red ? { code: red.code, label: domain.couponLabel(red) } : null;
   if (worker) worker.coupon = red ? { code: red.code, label: domain.couponLabel(red) } : null;
   let name = '';
-  if (u.actingAs) name = contractor ? contractor.company : worker ? worker.name : u.phone;
-  res.json(Object.assign(base, { user: { id: u.id, phone: u.phone, role: u.role, lang: u.lang, isAdmin: Boolean(u.isAdmin), actingAs: Boolean(u.actingAs), name }, contractor, worker }));
+  if (u.actingAs) name = contractor ? contractor.company : worker ? worker.name : partner ? partner.company : u.phone;
+  res.json(Object.assign(base, { projectFees: projects.fees(), user: { id: u.id, phone: u.phone, role: u.role, lang: u.lang, isAdmin: Boolean(u.isAdmin), actingAs: Boolean(u.actingAs), name }, contractor, worker, partner }));
 });
 
 r.post('/me/role', auth.requireUser, (req, res) => {
   if (req.user.role) throw bad('Your account type is already set.', 'role_set');
   const role = req.body.role;
-  if (!['worker', 'contractor'].includes(role)) throw bad('Choose worker or contractor.');
+  if (!['worker', 'contractor', 'partner'].includes(role)) throw bad('Choose worker, builder or contractor / professional.');
   if (req.user.role && req.user.role !== role) throw bad('This phone number is already registered with a different account type.', 'role_set');
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.user.id);
   res.json({ ok: true });
@@ -109,10 +117,11 @@ r.post('/me/lang', auth.requireUser, (req, res) => {
 r.post('/contractor/profile', auth.requireRole('contractor'), (req, res) => {
   const company = str(req.body.company, { name: 'Company name', max: 120 });
   const gst = str(req.body.gst, { name: 'GST number', max: 20, required: false }).toUpperCase();
+  const bizType = projects.BIZ_TYPES.includes(req.body.bizType) ? req.body.bizType : 'builder';
   const coupon = str(req.body.coupon, { name: 'Coupon code', max: 40, required: false });
   if (coupon) domain.findCoupon(coupon, 'contractor'); // check before saving anything
-  db.prepare(`INSERT INTO contractors (user_id, company, gst, created_at) VALUES (?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET company = excluded.company, gst = excluded.gst`).run(req.user.id, company, gst, nowIso());
+  db.prepare(`INSERT INTO contractors (user_id, company, gst, biz_type, created_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET company = excluded.company, gst = excluded.gst, biz_type = excluded.biz_type`).run(req.user.id, company, gst, bizType, nowIso());
   const applied = coupon ? domain.redeemCoupon(req.user.id, 'contractor', coupon) : null;
   res.json({ ok: true, coupon: applied });
 });

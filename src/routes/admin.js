@@ -41,6 +41,11 @@ r.get('/overview', (req, res) => {
     openBookings: one("SELECT COUNT(*) AS n FROM bookings WHERE status = 'open'"),
     paidTotal: db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM payments WHERE status = 'paid' AND test = 0").get().n,
     openReports: one("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
+    partners: one(`SELECT COUNT(*) AS n FROM partners p JOIN users u ON u.id = p.user_id WHERE ${live}`),
+    openProjects: one("SELECT COUNT(*) AS n FROM projects WHERE status = 'open'"),
+    awardedProjects: one("SELECT COUNT(*) AS n FROM projects WHERE status IN ('awarded','completed')"),
+    projectFeesEarned: db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM payments WHERE kind = 'project' AND status = 'paid' AND test = 0").get().n,
+    myInspections: req.admin.staffId ? one("SELECT COUNT(*) AS n FROM projects WHERE inspector_id = ? AND status IN ('awarded','completed') AND inspection_status IN ('none','scheduled')", req.admin.staffId) : null,
     urgentReports: one("SELECT COUNT(*) AS n FROM reports WHERE status = 'open' AND urgent = 1"),
     today: todaySummary(),
     myWorkload: req.admin.staffId ? one("SELECT COUNT(DISTINCT group_id) AS n FROM bookings WHERE supervisor_id = ? AND status != 'cancelled'", req.admin.staffId) : null,
@@ -55,7 +60,7 @@ r.put('/settings', can('pricing'), (req, res) => {
   db.transaction(() => {
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
       if (req.body[key] === undefined) continue;
-      const max = { worker_membership_required: 1, reminder_hour: 23, confirm_hours_before: 12, ot_multiplier: 5 }[key] || 1000000;
+      const max = { worker_membership_required: 1, reminder_hour: 23, confirm_hours_before: 12, ot_multiplier: 5, partner_leads_verified_only: 1 }[key] || 1000000;
       up.run(String(int(req.body[key], { min: 0, max, name: key })), key);
     }
   })();
@@ -324,6 +329,10 @@ r.post('/reports/:id/resolve', can('disputes'), (req, res) => {
       const outcome = req.body.ratingAction === 'remove' ? 'removed' : 'kept';
       db.prepare('UPDATE ratings SET dispute_status = ? WHERE booking_id = ? AND worker_id = ?').run(outcome, rp.booking_id, rp.from_user);
     }
+    if (rp.kind === 'rating' && !rp.booking_id) {
+      const m = /\((prj_[^)]+)\)/.exec(rp.text);
+      if (m) db.prepare('UPDATE project_ratings SET dispute_status = ? WHERE project_id = ? AND partner_id = ?').run(req.body.ratingAction === 'remove' ? 'removed' : 'kept', m[1], rp.from_user);
+    }
   })();
   if (rp.kind === 'rating') quality.recomputeTier(rp.from_user);
   res.json({ ok: true });
@@ -428,6 +437,90 @@ r.delete('/staff/users/:id', auth.requireRoot, (req, res) => {
     db.prepare('DELETE FROM staff_users WHERE id = ?').run(req.params.id);
   })();
   res.json({ ok: true });
+});
+
+// ---------- Projects marketplace ----------
+const PJ = require('../projects');
+r.get('/svc', can('projects'), (req, res) => {
+  const groups = db.prepare('SELECT * FROM svc_groups ORDER BY sort').all();
+  const cats = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM partner_categories pc WHERE pc.category_id = c.id) AS partners FROM svc_categories c ORDER BY c.sort`).all();
+  res.json({ groups: groups.map(g => Object.assign(g, { categories: cats.filter(c => c.group_id === g.id) })) });
+});
+r.post('/svc/categories', can('projects'), (req, res) => {
+  const g = db.prepare('SELECT id FROM svc_groups WHERE id = ?').get(String(req.body.group_id || ''));
+  if (!g) throw bad('Choose a group.');
+  const en = str(req.body.en, { name: 'English name', max: 120 });
+  const n = db.prepare('SELECT COUNT(*) AS n FROM svc_categories').get().n + 1;
+  let cid = 'c' + String(n).padStart(3, '0'); while (db.prepare('SELECT 1 FROM svc_categories WHERE id = ?').get(cid)) cid = id('c');
+  db.prepare('INSERT INTO svc_categories (id, group_id, en, hi, mr, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(cid, g.id, en,
+    str(req.body.hi, { name: 'Hindi name', max: 120, required: false }), str(req.body.mr, { name: 'Marathi name', max: 120, required: false }), 1000, nowIso());
+  res.json({ ok: true, id: cid });
+});
+r.patch('/svc/categories/:id', can('projects'), (req, res) => {
+  const c = db.prepare('SELECT * FROM svc_categories WHERE id = ?').get(req.params.id);
+  if (!c) throw new HttpError(404, 'Category not found.', 'not_found');
+  for (const k of ['en', 'hi', 'mr']) if (req.body[k] !== undefined) db.prepare(`UPDATE svc_categories SET ${k} = ? WHERE id = ?`).run(str(req.body[k], { name: 'Name', max: 120, required: k === 'en' }), c.id);
+  if (req.body.active !== undefined) db.prepare('UPDATE svc_categories SET active = ? WHERE id = ?').run(req.body.active ? 1 : 0, c.id);
+  res.json({ ok: true });
+});
+r.patch('/svc/groups/:id', can('projects'), (req, res) => {
+  for (const k of ['en', 'hi', 'mr']) if (req.body[k] !== undefined) db.prepare(`UPDATE svc_groups SET ${k} = ? WHERE id = ?`).run(str(req.body[k], { name: 'Name', max: 120, required: k === 'en' }), req.params.id);
+  res.json({ ok: true });
+});
+r.get('/partners', can('projects'), (req, res) => {
+  const rows = db.prepare('SELECT p.*, u.phone FROM partners p JOIN users u ON u.id = p.user_id WHERE u.deleted_at IS NULL ORDER BY p.created_at DESC LIMIT 2000').all();
+  res.json({ partners: rows.map(p => Object.assign(PJ.partnerCard(p), { phone: p.phone, gst: p.gst, licence_no: p.licence_no, status: p.status, created_at: p.created_at,
+    verified_docs: p.verified_docs, verified_licence: p.verified_licence, verified_site: p.verified_site,
+    reportsAgainst: db.prepare("SELECT COUNT(*) AS n FROM reports WHERE against_user = ? AND status = 'open'").get(p.user_id).n })) });
+});
+r.patch('/partners/:id', can('projects'), (req, res) => {
+  const p = PJ.getPartner(req.params.id);
+  if (!p || p.deleted_at) throw new HttpError(404, 'Not found.', 'not_found');
+  for (const k of ['verified_docs', 'verified_licence', 'verified_site']) if (req.body[k] !== undefined) db.prepare(`UPDATE partners SET ${k} = ? WHERE user_id = ?`).run(req.body[k] ? 1 : 0, p.user_id);
+  if (req.body.status !== undefined) { if (!['active', 'suspended'].includes(req.body.status)) throw bad('Unknown status.'); db.prepare('UPDATE partners SET status = ? WHERE user_id = ?').run(req.body.status, p.user_id); }
+  for (const k of ['company', 'city', 'contact_name']) if (req.body[k] !== undefined) db.prepare(`UPDATE partners SET ${k} = ? WHERE user_id = ?`).run(str(req.body[k], { name: k, max: 120, required: k !== 'contact_name' }), p.user_id);
+  res.json({ ok: true });
+});
+r.delete('/partners/:id', can('projects'), (req, res) => {
+  const p = PJ.getPartner(req.params.id);
+  if (!p || p.deleted_at) throw new HttpError(404, 'Not found.', 'not_found');
+  db.transaction(() => {
+    db.prepare("UPDATE quotes SET status = 'withdrawn', updated_at = ? WHERE partner_id = ? AND status = 'submitted'").run(nowIso(), p.user_id);
+    db.prepare("UPDATE partners SET status = 'deleted' WHERE user_id = ?").run(p.user_id);
+    db.prepare("UPDATE users SET deleted_at = ?, phone = 'del_' || id WHERE id = ?").run(nowIso(), p.user_id);
+  })();
+  res.json({ ok: true });
+});
+function projectRows(where, ...args) {
+  return db.prepare(`SELECT p.*, c.company AS client_company, c.biz_type, u.phone AS client_phone, s.name AS inspector_name,
+      (SELECT COUNT(*) FROM quotes q WHERE q.project_id = p.id AND q.status IN ('submitted','accepted')) AS quote_count
+    FROM projects p JOIN contractors c ON c.user_id = p.client_id JOIN users u ON u.id = p.client_id LEFT JOIN staff_users s ON s.id = p.inspector_id
+    ${where} ORDER BY p.created_at DESC LIMIT 500`).all(...args).map(p => {
+    const q = p.awarded_quote_id ? db.prepare('SELECT q.amount, q.days, q.status, pa.company, u.phone FROM quotes q JOIN partners pa ON pa.user_id = q.partner_id JOIN users u ON u.id = q.partner_id WHERE q.id = ?').get(p.awarded_quote_id) : null;
+    const cat = PJ.getCategory(p.category_id);
+    return Object.assign(p, { category_en: cat ? cat.en : '', group_en: cat ? cat.group_en : '', awarded: q });
+  });
+}
+r.get('/projects', can('projects'), (req, res) => res.json({ projects: projectRows('') }));
+r.post('/projects/:id/inspector', can('projects'), (req, res) => {
+  const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+  if (!p) throw new HttpError(404, 'Project not found.', 'not_found');
+  const sid = req.body.staffId ? String(req.body.staffId) : null;
+  if (sid && !db.prepare('SELECT 1 FROM staff_users WHERE id = ? AND active = 1').get(sid)) throw bad('Choose an active supervisor.');
+  db.prepare("UPDATE projects SET inspector_id = ?, inspection_status = CASE WHEN ? IS NOT NULL AND inspection_status = 'none' THEN 'scheduled' ELSE inspection_status END WHERE id = ?").run(sid, sid, p.id);
+  res.json({ ok: true });
+});
+// Inspection result: the main admin, anyone with the projects permission, or the assigned inspector.
+r.post('/projects/:id/inspection', async (req, res) => {
+  const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+  const allowed = p && (req.admin.root || req.admin.perms.includes('projects') || (req.admin.staffId && p.inspector_id === req.admin.staffId));
+  if (!allowed) throw new HttpError(404, 'Project not found.', 'not_found');
+  await PJ.setInspection(p.id, req.body.status, req.body.notes);
+  res.json({ ok: true });
+});
+r.get('/my-inspections', (req, res) => {
+  if (!req.admin.staffId) return res.json({ projects: [] });
+  res.json({ projects: projectRows("WHERE p.inspector_id = ? AND p.status IN ('awarded','completed')", req.admin.staffId) });
 });
 
 module.exports = r;

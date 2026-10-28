@@ -49,6 +49,21 @@ r.post('/contractor/bookings/:id/pay', auth.requireRole('contractor'), async (re
   await startBookingPayment(req, res, b.group_id, amount, {});
 });
 
+// ---- projects marketplace: award a quote, pay the inspection charge + platform fee ----
+r.post('/client/projects/:id/award', auth.requireRole('contractor'), async (req, res) => {
+  const projects = require('../projects');
+  const { amount, fees } = projects.startAward(req.user.id, req.params.id, req.body.quoteId);
+  if (!amount) { await projects.projectPaid(req.params.id); return res.json({ paid: true, fees }); }
+  const p = newPayment(req.user.id, 'project', req.params.id, amount);
+  if (!config.razorpay.live) {
+    assertTestModeAllowed();
+    return res.json({ fees, payment: { mode: 'test', paymentId: p.id, amount } });
+  }
+  const order = await rzp.createOrder({ amount, receipt: p.id, notes: { payment_id: p.id, project_id: req.params.id } });
+  db.prepare('UPDATE payments SET rzp_order_id = ? WHERE id = ?').run(order.id, p.id);
+  res.json({ fees, payment: { mode: 'live', paymentId: p.id, amount, checkout: { key: config.razorpay.keyId, order_id: order.id, amount: order.amount, currency: 'INR', prefill: prefill(req.user) } } });
+});
+
 // ---- worker membership ----
 r.post('/worker/membership', auth.requireRole('worker'), async (req, res) => {
   const w = domain.getWorker(req.user.id);

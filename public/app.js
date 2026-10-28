@@ -21,13 +21,17 @@ const S = {
        aw: { phone: '', name: '', area: '', experience: '', coupon: '', skills: {} }, ab: { phone: '', company: '', gst: '', coupon: '' },
        cp: { code: '', applies_to: 'both', kind: 'percent', value: '', max_uses: '', expires: '', note: '' },
        grp: { name: '', perms: {} }, st: { name: '', username: '', password: '', phone: '', group_id: '' },
-       reportTime: '09:00', otRate: '', travel: '', bterms: false, wterms: false, ask: { wage: '', travel: '', note: '' }, prefer: [], noticeText: '', teamName: '', busyUntil: '', availPick: '', disputeText: '', rf: 'open' },
+       mk: 'mine', bizType: 'builder', pterms: false, qterms: false, reportTime: '09:00', otRate: '', travel: '', bterms: false, wterms: false, ask: { wage: '', travel: '', note: '' }, prefer: [], noticeText: '', teamName: '', busyUntil: '', availPick: '', disputeText: '', rf: 'open' },
   ws: { skill: '', area: '', exp: '', minRating: '', maxWage: '', level: 'any', start: '', days: '1', verified: false, fav: false, results: null, total: 0 },
-  askFor: '',
+  askFor: '', cats: null, ptab: 'leads', quoteFor: '', awardConfirm: '', pdisputeFor: '',
+  pp: { company: '', contactName: '', city: '', areas: '', experienceYears: '', teamSize: '', gst: '', licenceNo: '', about: '', cats: {}, catQ: '' },
+  np: { categoryId: '', title: '', description: '', city: '', siteAddress: '', lat: null, lng: null, budgetMin: '', budgetMax: '', startDate: '', durationDays: '', invite: [], onlyInvited: false },
+  dir: { category: '', city: '', verified: false, results: null, total: 0 },
+  qf: { amount: '', days: '', note: '' },
   pf: { area: '', exp: '', minRating: '', maxWage: '', verified: false, fav: false },
   rep: { kind: 'problem', category: 'other', bookingId: '', text: '', urgent: false },
   panel: {}, reg: null, confirmBlock: '', disputeFor: '',
-  data: { bookings: [], jobs: [], work: [], messages: [], avail: {}, dash: null, teams: [], reports: [], blocks: [], calendar: null, ratings: null }, admin: {}, pick: { id: '', list: [], needed: 0 }, confirmDecline: '',
+  data: { bookings: [], jobs: [], work: [], messages: [], avail: {}, dash: null, teams: [], reports: [], blocks: [], calendar: null, ratings: null, leads: [], pwork: [], cprojects: [] }, admin: {}, pick: { id: '', list: [], needed: 0 }, confirmDecline: '',
   cfgDraft: null, confirmCancel: '', confirmDel: '', confirmDelUser: '', edit: null, formOpen: {}, q: '', err: '', busy: false,
 };
 const t = (k, p) => { let s = (T[S.lang] && T[S.lang][k]) || T.en[k] || k; if (p) Object.keys(p).forEach(x => { s = s.split('{' + x + '}').join(p[x]); }); return s; };
@@ -59,13 +63,22 @@ async function loadTab() {
   const u = S.me && S.me.user; if (!u && !isAdmin()) return;
   try {
     if ((S.view === 'admin' || !u) && isAdmin()) {
-      const map = { overview: ['overview'], reports: ['reports'], mywork: ['my-work'], pricing: ['settings'], skills: ['skills'], workers: ['workers', 'skills'], contractors: ['contractors'], bookings: ['bookings', 'staff-names'], coupons: ['coupons'], staff: ['staff'], payments: ['payments'], outbox: ['notifications'] };
-      const whole = { overview: 1, 'my-work': 1, staff: 1 }, field = { 'staff-names': 'staff' };
+      const map = { overview: ['overview'], reports: ['reports'], mprojects: ['projects', 'staff-names'], partners: ['partners'], categories: ['svc'], myinsp: ['my-inspections'], mywork: ['my-work'], pricing: ['settings'], skills: ['skills'], workers: ['workers', 'skills'], contractors: ['contractors'], bookings: ['bookings', 'staff-names'], coupons: ['coupons'], staff: ['staff'], payments: ['payments'], outbox: ['notifications'] };
+      const whole = { overview: 1, 'my-work': 1, staff: 1, svc: 1, 'my-inspections': 1 }, field = { 'staff-names': 'staff' };
       for (const k of map[S.atab] || []) {
         const r = await api('GET', '/api/admin/' + k);
         S.admin[k] = whole[k] ? r : r[field[k] || k];
       }
+    } else if (u.role === 'partner') {
+      await loadCats();
+      if (S.me.partner) {
+        if (S.ptab === 'leads') S.data.leads = (await api('GET', '/api/partner/leads')).leads;
+        if (S.ptab === 'work') S.data.pwork = (await api('GET', '/api/partner/work')).work;
+        if (S.ptab === 'support') await loadSupport();
+        if (S.ptab === 'messages') S.data.messages = (await api('GET', '/api/messages')).messages;
+      }
     } else if (u.role === 'contractor' && S.me.contractor) {
+      if (S.ctab === 'projects') { await loadCats(); S.data.cprojects = (await api('GET', '/api/client/projects')).projects; }
       if (['home', 'bookings', 'support'].includes(S.ctab)) S.data.bookings = (await api('GET', '/api/contractor/bookings')).bookings;
       if (S.ctab === 'home') S.data.dash = await api('GET', '/api/contractor/dashboard');
       if (S.ctab === 'workers') { S.data.teams = (await api('GET', '/api/contractor/teams')).teams; if (!S.ws.results) await searchWorkers(); }
@@ -184,10 +197,11 @@ function renderLogin() {
       '<section class="card"><h2>' + esc(t('loginTitle')) + '</h2><span class="small muted">' + esc(t('loginSub')) + '</span>' + phoneForm() + '</section>' +
       '<div class="divider">' + esc(t('newHere')) + '</div>' +
       '<div class="signup">' + card('worker', '👷', t('portalWorker'), t('portalWorkerSub')) + card('contractor', '🏗️', t('portalContractor'), t('portalContractorSub')) + '</div>' +
+      '<button type="button" class="opt partnercard" data-a="portal" data-v="partner"><span class="ico" aria-hidden="true">🧰</span><span><b>' + esc(t('portalPartner')) + '</b><br><span class="small muted">' + esc(t('portalPartnerSub')) + '</span></span></button>' +
       '<button type="button" class="btn ghost small" style="align-self:center" data-a="portal" data-v="admin">🔒 ' + esc(t('portalAdmin')) + '</button></div>';
   }
   let h = '<div class="login stack"><div class="row"><div class="mark" aria-hidden="true">LK</div><div><h1>Labour Katta</h1><span class="muted">' + esc(t('tagline')) + '</span></div></div>';
-  const title = S.portal === 'admin' ? t('portalAdmin') : S.portal === 'worker' ? t('portalWorker') : t('portalContractor');
+  const title = S.portal === 'admin' ? t('portalAdmin') : S.portal === 'worker' ? t('portalWorker') : S.portal === 'partner' ? t('portalPartner') : t('portalContractor');
   h += '<div class="row" style="justify-content:space-between"><h2>' + esc(title) + '</h2><button type="button" class="btn ghost small" data-a="portal" data-v="">← ' + esc(t('back')) + '</button></div><section class="card">';
   if (S.portal === 'admin') {
     h += '<label class="f" for="a-user">' + esc(t('username')) + '<input id="a-user" class="in" autocomplete="username" autocapitalize="off" data-af="user" value="' + esc(S.adm.user) + '"></label>' +
@@ -205,6 +219,7 @@ function renderRole() {
 }
 function renderContractorProfile() {
   return '<div class="login stack"><h1>' + esc(t('iAmContractor')) + '</h1><section class="card">' +
+    '<div class="f"><span>' + esc(t('iAmA')) + '</span>' + seg('bizType', BIZ.map(b => [b, t('biz_' + b)]), S.f.bizType) + '</div>' +
     '<label class="f" for="c-name">' + esc(t('companyName')) + '<input id="c-name" class="in" data-f="company" value="' + esc(S.f.company) + '" maxlength="120"></label>' +
     '<label class="f" for="c-gst">' + esc(t('gst')) + '<input id="c-gst" class="in" data-f="gst" value="' + esc(S.f.gst) + '" maxlength="20"></label>' +
     '<label class="f" for="c-coupon">' + esc(t('couponLabel')) + '<input id="c-coupon" class="in" data-f="coupon" value="' + esc(S.f.coupon || '') + '" maxlength="40" autocapitalize="characters"></label>' +
@@ -391,7 +406,7 @@ function renderActivate(c, s) {
 function renderContractor() {
   const c = S.me.contractor, s = settings();
   if (!c.access) return renderActivate(c, s);
-  let h = '<div class="stack">' + tabs([['home', t('tHome')], ['book', t('tBook')], ['bookings', t('tBookings')], ['workers', t('tFind')], ['plan', t('tPlan')], ['support', t('tHelp')], ['messages', t('tMessages')]], S.ctab, 'ctab');
+  let h = '<div class="stack">' + tabs([['home', t('tHome')], ['book', t('tBook')], ['bookings', t('tBookings')], ['projects', t('tProjects')], ['workers', t('tFind')], ['plan', t('tPlan')], ['support', t('tHelp')], ['messages', t('tMessages')]], S.ctab, 'ctab');
   const live = S.data.bookings.filter(b => b.status !== 'cancelled');
   if (S.ctab === 'home') {
     if (c.plan_status === 'trial') h += '<div class="status s-ok">' + esc(t('trialUntil', { d: fmtDate(c.trial_until) })) + '</div>';
@@ -408,6 +423,7 @@ function renderContractor() {
         : (c.plan_status === 'cancelled' ? '<div class="status s-warn">' + esc(t('planCancelled')) + '</div>' : '') + '<button type="button" class="btn primary" data-a="startPlan">' + esc(t('startPlan')) + ' · ' + money(c.planPrice) + '</button>') + '</section>';
   }
   if (S.ctab === 'workers') h += renderFind();
+  if (S.ctab === 'projects') h += renderClientProjects();
   if (S.ctab === 'support') h += renderSupport(S.data.bookings.filter(b => b.status !== 'pending_payment'));
   if (S.ctab === 'messages') h += renderMessages();
   return h + '</div>';
@@ -485,13 +501,15 @@ const CFG = [
   ['worker_first_month', 'Worker – first month (UPI AutoPay)'], ['worker_monthly', 'Worker – monthly (UPI AutoPay)'], ['worker_cash_monthly', 'Worker – monthly (cash)'],
   ['contractor_plan', 'Builder plan – monthly'], ['platform_fee_per_worker', 'Platform fee – per worker, every booking'], ['job_fee', 'Job fee – builder without plan'],
   ['ot_multiplier', 'Overtime multiplier (× hourly wage) when no rate is agreed'], ['reminder_hour', 'Reminder to workers – hour of day before job (0–23)'], ['confirm_hours_before', 'Alert builder if not confirmed – hours before reporting'],
+  ['project_inspection_fee', 'Projects – inspection (quality) charge per award'], ['project_platform_fee', 'Projects – platform fee per award'], ['partner_leads_verified_only', 'Projects – send leads only to verified contractors (1 = yes, 0 = no)'],
   ['qc_per_day', 'Quality In-charge – per day'], ['margin_per_worker_day', 'Labour Katta margin – per worker per day'], ['silver_bonus', 'Silver tier bonus – per day'], ['gold_bonus', 'Gold tier bonus – per day']];
-const PERM_LABELS = { bookings: 'Bookings', workers: 'Workers', builders: 'Builders', pricing: 'Prices & skills', coupons: 'Coupons', payments: 'Payments & messages', open_portals: 'Open portals', disputes: 'Reports, disputes & builder verification' };
+const PERM_LABELS = { bookings: 'Bookings', workers: 'Workers', builders: 'Builders', pricing: 'Prices & skills', coupons: 'Coupons', payments: 'Payments & messages', open_portals: 'Open portals', disputes: 'Reports, disputes & builder verification', projects: 'Projects marketplace & inspections' };
 function adminInfo() { return (S.me && S.me.admin) || { root: false, perms: [], name: '' }; }
 function canDo(p) { const a = adminInfo(); return a.root || a.perms.includes(p); }
 function adminTabs() {
   const a = adminInfo(), list = [['overview', 'Overview']];
-  if (a.staffId) list.push(['mywork', 'My workload']);
+  if (a.staffId) list.push(['mywork', 'My workload'], ['myinsp', 'My inspections' + (S.admin.overview && S.admin.overview.myInspections ? ' (' + S.admin.overview.myInspections + ')' : '')]);
+  if (canDo('projects')) list.push(['mprojects', 'Projects'], ['partners', 'Contractors & pros'], ['categories', 'Categories']);
   if (canDo('bookings')) list.push(['bookings', 'Bookings']);
   if (canDo('workers')) list.push(['workers', 'Workers']);
   if (canDo('builders')) list.push(['contractors', 'Builders']);
@@ -529,6 +547,8 @@ function renderAdmin() {
         .map(x => '<div class="stat"><b class="num">' + x[1] + '</b><span>' + esc(x[0]) + '</span></div>').join('') + '</div></section>';
     }
     tiles.push(['Open reports & disputes', o.openReports || 0]);
+    if (o.partners != null) tiles.push(['Contractors & professionals', o.partners], ['Open projects', o.openProjects], ['Projects awarded', o.awardedProjects], ['Project fees received', money(o.projectFeesEarned)]);
+    if (o.myInspections != null) tiles.unshift(['My inspections to do', o.myInspections]);
     h += '<div class="grid3">' + tiles.map(x => '<section class="card"><span class="small muted">' + esc(x[0]) + '</span><span class="big num">' + esc(x[1]) + '</span></section>').join('') + '</div>';
     if (me.root) h += '<section class="card"><h2>Integrations</h2><div class="list">' +
       [['Razorpay payments & UPI AutoPay', o.integrations.payments], ['WhatsApp Cloud API', o.integrations.whatsapp], ['Razorpay webhook secret', o.integrations.webhookSecret ? 'live' : 'test']]
@@ -698,6 +718,7 @@ function renderAdmin() {
   }
 
   if (S.atab === 'reports' && A.reports) h += renderAdminReports();
+  h += renderAdminMarket(A);
   if (S.atab === 'payments' && A.payments) {
     h += '<section class="card"><h2>Payments</h2><div class="tablebox"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Status</th><th>Razorpay reference</th></tr></thead><tbody>' +
       (A.payments.length ? A.payments.map(p => '<tr><td class="num">' + esc(fmtTime(p.created_at)) + '</td><td>' + esc(p.kind.replace('_', ' ')) + (p.test ? ' <span class="pill p-amber">test</span>' : '') + '</td><td class="num">' + money(p.amount) + '</td><td><span class="pill ' + (p.status === 'paid' ? 'p-green' : 'p-grey') + '">' + esc(p.status) + '</span></td><td class="small num">' + esc(p.rzp_payment_id || p.rzp_order_id || p.rzp_subscription_id || '—') + '</td></tr>').join('') : '<tr><td colspan="5" class="muted">No payments yet.</td></tr>') + '</tbody></table></div></section>';
@@ -722,6 +743,7 @@ function render() {
   else if (S.view === 'admin' && isAdmin()) html = renderAdmin();
   else if (!u.role) html = renderRole();
   else if (u.role === 'contractor') html = S.me.contractor ? renderContractor() : renderContractorProfile();
+  else if (u.role === 'partner') html = S.me.partner ? renderPartner() : (S.cats ? '<div class="login stack">' + renderPartnerProfile(false) + '</div>' : '<p class="muted">' + esc(t('loading')) + '</p>');
   else html = S.me.worker ? renderWorker() : '<div class="login stack">' + renderWorkerProfile(false) + '</div>';
   app.innerHTML = '<div style="padding-top:16px">' + html + '</div>';
   if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { if (ss != null && el.setSelectionRange) el.setSelectionRange(ss, se); } catch (e) { /* not a text field */ } } }
@@ -1032,6 +1054,251 @@ function renderAdminReports() {
       : '<div class="status s-ok">Resolved: ' + esc(x.resolution) + '</div>') + '</section>').join('');
 }
 
+// ================= Projects marketplace =================
+const catName = (c) => !c ? '' : (S.lang === 'hi' && c.hi) || (S.lang === 'mr' && c.mr) || c.en;
+const grpName = (g) => !g ? '' : (S.lang === 'hi' && g.hi) || (S.lang === 'mr' && g.mr) || g.en;
+const allCats = () => (S.cats || []).reduce((a, g) => a.concat(g.categories.map(c => Object.assign({ g }, c))), []);
+const findCat = (id) => allCats().find(c => c.id === id);
+async function loadCats() { if (!S.cats) S.cats = (await api('GET', '/api/categories')).groups; }
+function catSelect(path, value, placeholder, label) {
+  return '<select class="in" aria-label="' + esc(label || placeholder) + '" data-p="' + path + '"><option value="">' + esc(placeholder) + '</option>' +
+    (S.cats || []).map(g => '<optgroup label="' + esc(grpName(g)) + '">' + g.categories.map(c => '<option value="' + esc(c.id) + '"' + (value === c.id ? ' selected' : '') + '>' + esc(catName(c)) + '</option>').join('') + '</optgroup>').join('') + '</select>';
+}
+const budgetText = (p) => p.budget_max ? (p.budget_min ? money(p.budget_min) + ' – ' : t('upTo') + ' ') + money(p.budget_max) : t('budgetOpen');
+const BIZ = ['builder', 'architect', 'developer', 'owner', 'contractor_firm'];
+function partnerBadge(v) { return v && v.verified ? '<span class="pill p-green">✓ ' + esc(t('pVerified')) + '</span>' : '<span class="pill p-grey">' + esc(t('pNotVerified')) + '</span>'; }
+function partnerStatsLine(p) {
+  const s = p.stats || {}; const r = s.rating || {};
+  return [p.city, p.experience_years ? t('yrsExp', { y: p.experience_years }) : '', p.team_size ? t('teamOf', { n: p.team_size }) : '', r.count ? '★ ' + r.avg + ' (' + r.count + ')' : t('noRatingYet'), t('projectsDone', { n: s.completed || 0 })].filter(Boolean).join(' · ');
+}
+function partnerCardHtml(p, extra) {
+  return '<div class="li wcard" style="align-items:flex-start"><div class="av" aria-hidden="true">' + esc(initials(p.company)) + '</div><div class="grow"><div class="row" style="gap:6px"><b>' + esc(p.company) + '</b>' + partnerBadge(p.v) + '</div>' +
+    '<div class="small muted">' + esc(partnerStatsLine(p)) + '</div>' +
+    (p.categories && p.categories.length ? '<div class="small">' + esc(p.categories.slice(0, 4).map(catName).join(', ') + (p.categories.length > 4 ? ' +' + (p.categories.length - 4) : '')) + '</div>' : '') +
+    (p.about ? '<div class="small muted">' + esc(p.about.slice(0, 160)) + '</div>' : '') + '</div>' + (extra || '') + '</div>';
+}
+
+// ----- partner sign-up / profile -----
+function fillPartnerForm() {
+  const p = S.me.partner; if (!p) return;
+  Object.assign(S.pp, { company: p.company, contactName: p.contact_name, city: p.city, areas: p.areas, experienceYears: p.experience_years || '', teamSize: p.team_size || '', gst: p.gst, licenceNo: p.licence_no, about: p.about, cats: {} });
+  p.categories.forEach(c => { S.pp.cats[c] = true; });
+}
+function renderPartnerProfile(editing) {
+  const f = S.pp, q = (f.catQ || '').trim().toLowerCase();
+  const chosen = Object.keys(f.cats).filter(k => f.cats[k]);
+  let h = '<section class="card">' + (editing ? '<h2>' + esc(t('tProfile')) + '</h2>' : '<h1>' + esc(t('partnerSignupTitle')) + '</h1><span class="muted">' + esc(t('partnerSignupSub')) + '</span>') +
+    '<label class="f" for="pp-co">' + esc(t('ppCompany')) + '<input id="pp-co" class="in" maxlength="120" ' + P('pp.company', f.company) + '></label>' +
+    '<label class="f" for="pp-cn">' + esc(t('ppContact')) + '<input id="pp-cn" class="in" maxlength="80" ' + P('pp.contactName', f.contactName) + '></label>' +
+    '<div class="grid2"><label class="f" for="pp-city">' + esc(t('ppCity')) + '<input id="pp-city" class="in" maxlength="80" ' + P('pp.city', f.city) + '></label>' +
+    '<label class="f" for="pp-areas">' + esc(t('ppAreas')) + '<input id="pp-areas" class="in" maxlength="200" placeholder="' + esc(t('ppAreasPh')) + '" ' + P('pp.areas', f.areas) + '></label>' +
+    '<label class="f" for="pp-exp">' + esc(t('ppExp')) + '<input id="pp-exp" class="in num" type="number" min="0" max="80" ' + P('pp.experienceYears', f.experienceYears) + '></label>' +
+    '<label class="f" for="pp-team">' + esc(t('ppTeam')) + '<input id="pp-team" class="in num" type="number" min="0" ' + P('pp.teamSize', f.teamSize) + '></label>' +
+    '<label class="f" for="pp-gst">' + esc(t('gst')) + '<input id="pp-gst" class="in" maxlength="20" ' + P('pp.gst', f.gst) + '></label>' +
+    '<label class="f" for="pp-lic">' + esc(t('ppLicence')) + '<input id="pp-lic" class="in" maxlength="60" ' + P('pp.licenceNo', f.licenceNo) + '></label></div>' +
+    '<label class="f" for="pp-about">' + esc(t('ppAbout')) + '<textarea id="pp-about" class="in ta" maxlength="1000" placeholder="' + esc(t('ppAboutPh')) + '" data-p="pp.about">' + esc(f.about || '') + '</textarea></label>' +
+    '<b>' + esc(t('ppCats', { n: chosen.length })) + '</b>' +
+    (chosen.length ? '<div class="chips">' + chosen.map(id => '<button type="button" class="chip sk" aria-pressed="true" data-a="ppCat" data-v="' + esc(id) + '">' + esc(catName(findCat(id))) + ' ✕</button>').join('') + '</div>' : '<span class="small muted">' + esc(t('ppCatsHelp')) + '</span>') +
+    '<input id="pp-q" class="in" placeholder="' + esc(t('ppCatSearch')) + '" aria-label="' + esc(t('ppCatSearch')) + '" ' + P('pp.catQ', f.catQ) + '>' +
+    '<div class="catlist">' + (S.cats || []).map(g => {
+      const list = g.categories.filter(c => !q || catName(c).toLowerCase().includes(q) || c.en.toLowerCase().includes(q));
+      if (!list.length) return '';
+      return '<details' + (q ? ' open' : '') + '><summary>' + esc(grpName(g)) + ' <span class="muted small">(' + list.length + ')</span></summary><div class="chips">' +
+        list.map(c => '<button type="button" class="chip sk" style="min-height:38px;font-size:14px" data-a="ppCat" data-v="' + esc(c.id) + '" aria-pressed="' + !!f.cats[c.id] + '">' + esc(catName(c)) + '</button>').join('') + '</div></details>';
+    }).join('') + '</div>' +
+    errBox() + '<button type="button" class="btn primary" data-a="savePartner">' + esc(editing ? t('save') : t('saveContinue')) + '</button></section>';
+  return h;
+}
+
+// ----- partner portal -----
+function renderPartner() {
+  const p = S.me.partner, s = p.stats;
+  let h = '<div class="stack"><section class="card hero"><div class="row"><div class="av" aria-hidden="true">' + esc(initials(p.company)) + '</div><div class="grow"><h2>' + esc(p.company) + '</h2><span class="muted small">' +
+    esc(t('ppCats', { n: p.categories.length }) + ' · ' + p.city) + '</span></div>' + partnerBadge(p.vflags) + '</div>' +
+    '<span class="small">' + esc((s.rating.count ? '★ ' + s.rating.avg + ' (' + s.rating.count + ') · ' : '') + t('projectsWon', { n: s.won }) + ' · ' + t('projectsDone', { n: s.completed })) + '</span></section>';
+  h += tabs([['leads', t('tLeads')], ['work', t('tMyQuotes')], ['profile', t('tProfile')], ['support', t('tHelp')], ['messages', t('tMessages')]], S.ptab, 'ptab');
+  if (!p.vflags.verified && S.ptab === 'leads') h += '<div class="status s-warn">' + esc(t('pVerifyNote')) + '</div>';
+  if (S.ptab === 'leads') h += (S.data.leads.length ? S.data.leads.map(leadCard).join('') : empty(t('noLeads')));
+  if (S.ptab === 'work') h += (S.data.pwork.length ? S.data.pwork.map(pworkCard).join('') : empty(t('noQuotes')));
+  if (S.ptab === 'profile') h += renderPartnerProfile(true);
+  if (S.ptab === 'support') h += renderSupport([]);
+  if (S.ptab === 'messages') h += renderMessages();
+  return h + '</div>';
+}
+function projectMeta(p) {
+  return '<div class="row" style="gap:6px"><span class="pill p-blue">' + esc(catName(p.category)) + '</span>' + (p.invited === true ? '<span class="pill p-amber">' + esc(t('invitedYou')) + '</span>' : '') + '</div>' +
+    '<h3>' + esc(p.title) + '</h3>' +
+    '<div class="small muted">' + esc([p.client_company ? p.client_company + ' (' + t('biz_' + (p.biz_type || 'builder')) + ')' : '', p.city, p.start_date ? t('startsOn', { d: fmtDate(p.start_date) }) : '', p.duration_days ? t('daysN', { n: p.duration_days }) : ''].filter(Boolean).join(' · ')) + '</div>' +
+    '<div class="kv"><span class="small">' + esc(t('budget')) + '</span><b class="num">' + esc(budgetText(p)) + '</b></div>' +
+    (p.description ? '<p class="small" style="margin:0;white-space:pre-wrap">' + esc(p.description) + '</p>' : '') +
+    addressBlock({ site_address: p.site_address || p.city, site_lat: p.site_lat, site_lng: p.site_lng }, false);
+}
+function leadCard(p) {
+  const q = p.myQuote;
+  let h = '<section class="card offer">' + projectMeta(p) + '<span class="small muted">' + esc(t('quotesSoFar', { n: p.quotes })) + '</span>';
+  if (q && q.status === 'submitted') h += '<div class="status s-ok">' + esc(t('yourQuote', { a: money(q.amount), d: q.days })) + '</div>';
+  if (S.quoteFor === p.id) {
+    h += '<div class="panel"><div class="grid2"><label class="f" for="qa">' + esc(t('quoteAmount')) + '<input id="qa" class="in num" type="number" min="1" ' + P('qf.amount', S.qf.amount) + '></label>' +
+      '<label class="f" for="qd">' + esc(t('quoteDays')) + '<input id="qd" class="in num" type="number" min="1" ' + P('qf.days', S.qf.days) + '></label></div>' +
+      '<label class="f" for="qn">' + esc(t('quoteNote')) + '<textarea id="qn" class="in ta" maxlength="1000" placeholder="' + esc(t('quoteNotePh')) + '" data-p="qf.note">' + esc(S.qf.note || '') + '</textarea></label>' +
+      termsTick('qterms') + '<div class="row"><button type="button" class="btn primary" data-a="sendQuote" data-b="' + esc(p.id) + '"' + (S.f.qterms ? '' : ' disabled') + '>' + esc(t(q ? 'updateQuote' : 'sendQuote')) + '</button><button type="button" class="btn ghost" data-a="closeQuote">' + esc(t('cancel')) + '</button></div></div>';
+  } else {
+    h += '<div class="row"><button type="button" class="btn blue" data-a="openQuote" data-b="' + esc(p.id) + '">' + esc(t(q && q.status === 'submitted' ? 'changeQuote' : 'sendQuote')) + '</button>' +
+      (q && q.status === 'submitted' ? '<button type="button" class="btn ghost small" data-a="withdrawQuote" data-v="' + esc(q.id) + '">' + esc(t('withdrawQuote')) + '</button>' : '') + blockBtn(p.client_id) + '</div>';
+  }
+  return h + '</section>';
+}
+function pworkCard(p) {
+  const st = p.quote.status;
+  const pill = { accepted: ['p-green', 'qWon'], rejected: ['p-grey', 'qLost'], submitted: ['p-amber', 'qWaiting'], withdrawn: ['p-grey', 'qWithdrawn'] }[st] || ['p-grey', st];
+  let h = '<section class="card"><div class="row" style="justify-content:space-between"><span class="pill ' + pill[0] + '">' + esc(t(pill[1])) + '</span><span class="num"><b>' + money(p.quote.amount) + '</b> · ' + esc(t('daysN', { n: p.quote.days })) + '</span></div>' + projectMeta(p);
+  if (st === 'accepted') {
+    h += p.client_phone ? '<div class="kv"><span>' + esc(t('clientPhone')) + '</span><a class="btn blue small" href="tel:+91' + esc(p.client_phone) + '">📞 ' + esc(p.client_phone) + '</a></div>' : '';
+    h += inspectionLine(p);
+    if (p.rating) h += '<div class="small"><b class="stars">' + stars(p.rating.stars) + '</b> ' + (p.rating.comment ? '“' + esc(p.rating.comment) + '”' : '') + '</div>' +
+      (p.rating.dispute_status === 'none' ? (S.pdisputeFor === p.id ? '<textarea class="in ta" maxlength="500" placeholder="' + esc(t('disputePh')) + '" data-p="f.disputeText">' + esc(S.f.disputeText || '') + '</textarea><div class="row"><button type="button" class="btn blue small" data-a="pSendDispute" data-v="' + esc(p.id) + '">' + esc(t('disputeSend')) + '</button><button type="button" class="btn ghost small" data-a="pNoDispute">' + esc(t('cancel')) + '</button></div>'
+        : '<button type="button" class="btn ghost small" style="align-self:flex-start" data-a="pAskDispute" data-v="' + esc(p.id) + '">' + esc(t('disputeBtn')) + '</button>')
+        : '<span class="pill ' + (p.rating.dispute_status === 'removed' ? 'p-green' : 'p-amber') + '">' + esc(t(p.rating.dispute_status === 'open' ? 'disputeOpen' : p.rating.dispute_status === 'removed' ? 'disputeRemoved' : 'disputeKept')) + '</span>');
+  }
+  return h + '</section>';
+}
+function inspectionLine(p) {
+  const s = p.inspection_status;
+  if (!s || s === 'none') return '<span class="small muted">' + esc(t('inspNone')) + '</span>';
+  const m = { scheduled: ['s-warn', 'inspScheduled'], passed: ['s-ok', 'inspPassed'], issues: ['s-err', 'inspIssues'] }[s];
+  return '<div class="status ' + m[0] + '">' + esc(t(m[1])) + (p.inspection_notes ? ': ' + esc(p.inspection_notes) : '') + '</div>';
+}
+
+// ----- client (builder / architect / developer / owner): Projects tab -----
+function renderClientProjects() {
+  const fe = S.me.projectFees || { inspection: 0, platform: 0 };
+  let h = '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('mkTitle')) + '</span><span>' + esc(t('mkSub')) + '</span>' +
+    '<div class="bill"><div class="bill-r"><span>' + esc(t('inspFee')) + '</span><span class="num">' + money(fe.inspection) + '</span></div><div class="bill-r"><span>' + esc(t('platFee')) + '</span><span class="num">' + money(fe.platform) + '</span></div>' +
+    '<div class="bill-r tot"><span>' + esc(t('perAward')) + '</span><span class="num">' + money(fe.inspection + fe.platform) + '</span></div></div><span class="small muted">' + esc(t('feesNote')) + '</span></section>';
+  h += '<div class="row">' + seg('mk', [['mine', t('mkMine')], ['post', t('mkPost')], ['dir', t('mkFind')]], S.f.mk) + '</div>';
+  if (S.f.mk === 'post') h += renderPostProject();
+  if (S.f.mk === 'dir') h += renderDirectory();
+  if (S.f.mk === 'mine') h += S.data.cprojects.length ? S.data.cprojects.map(clientProjectCard).join('') : empty(t('noProjects'));
+  return h;
+}
+function renderPostProject() {
+  const f = S.np, pin = { lat: f.lat, lng: f.lng, address: f.siteAddress };
+  return '<section class="card"><h2>' + esc(t('mkPost')) + '</h2>' +
+    '<label class="f">' + esc(t('needWho')) + catSelect('np.categoryId', f.categoryId, t('chooseCat'), t('needWho')) + '</label>' +
+    '<label class="f" for="np-t">' + esc(t('npTitle')) + '<input id="np-t" class="in" maxlength="120" placeholder="' + esc(t('npTitlePh')) + '" ' + P('np.title', f.title) + '></label>' +
+    '<label class="f" for="np-d">' + esc(t('npDesc')) + '<textarea id="np-d" class="in ta" maxlength="3000" placeholder="' + esc(t('npDescPh')) + '" data-p="np.description">' + esc(f.description || '') + '</textarea></label>' +
+    '<div class="grid2"><label class="f" for="np-c">' + esc(t('ppCity')) + '<input id="np-c" class="in" maxlength="80" ' + P('np.city', f.city) + '></label>' +
+    '<label class="f" for="np-a">' + esc(t('siteAddress')) + '<input id="np-a" class="in" maxlength="300" ' + P('np.siteAddress', f.siteAddress) + '></label>' +
+    '<label class="f" for="np-bmin">' + esc(t('budgetMin')) + '<input id="np-bmin" class="in num" type="number" min="0" ' + P('np.budgetMin', f.budgetMin) + '></label>' +
+    '<label class="f" for="np-bmax">' + esc(t('budgetMax')) + '<input id="np-bmax" class="in num" type="number" min="0" ' + P('np.budgetMax', f.budgetMax) + '></label>' +
+    '<label class="f" for="np-s">' + esc(t('startDate')) + '<input id="np-s" class="in" type="date" min="' + istDate(0) + '" ' + P('np.startDate', f.startDate) + '></label>' +
+    '<label class="f" for="np-dur">' + esc(t('npDuration')) + '<input id="np-dur" class="in num" type="number" min="1" ' + P('np.durationDays', f.durationDays) + '></label></div>' +
+    '<div class="row"><button type="button" class="btn ghost small" data-a="npLocate">📍 ' + esc(f.lat != null ? t('pinUpdate') : t('useLocation')) + '</button>' + (f.lat != null ? '<span class="pill p-green">' + esc(t('pinSet')) + '</span>' : '') + '</div>' + mapEmbed(pin, 180) +
+    (S.np.invite.length ? '<div class="f"><span>' + esc(t('inviteList')) + '</span><div class="chips">' + S.np.invite.map(x => '<button type="button" class="chip" data-a="npUninvite" data-v="' + esc(x.id) + '">' + esc(x.name) + ' ✕</button>').join('') + '</div>' +
+      '<button type="button" class="opt" data-a="npOnlyInvited" aria-pressed="' + !!f.onlyInvited + '"><span class="dot"></span><span><b>' + esc(t('onlyInvited')) + '</b><br><span class="small">' + esc(t('onlyInvitedSub')) + '</span></span></button></div>' : '') +
+    termsTick('pterms') + errBox() + '<button type="button" class="btn primary" data-a="postProject"' + (S.f.pterms ? '' : ' disabled') + '>' + esc(t('postProject')) + '</button></section>';
+}
+function renderDirectory() {
+  const d = S.dir;
+  let h = '<section class="card"><h2>' + esc(t('mkFind')) + '</h2><div class="grid2"><label class="f">' + esc(t('needWho')) + catSelect('dir.category', d.category, t('allCats'), t('needWho')) + '</label>' +
+    '<label class="f" for="dir-c">' + esc(t('ppCity')) + '<input id="dir-c" class="in" ' + P('dir.city', d.city) + '></label></div>' +
+    '<div class="chips"><button type="button" class="chip" data-a="dirToggle" data-v="verified" aria-pressed="' + !!d.verified + '">✓ ' + esc(t('pVerified')) + '</button></div>' +
+    '<button type="button" class="btn primary" data-a="dirSearch">' + esc(t('fSearch')) + '</button></section>';
+  if (d.results) {
+    const open = S.data.cprojects.filter(p => p.status === 'open');
+    h += '<section class="card"><h2>' + esc(t('dirResults', { n: d.total })) + '</h2>' + (d.results.length ? '<div class="list">' + d.results.map(p => partnerCardHtml(p,
+      '<div class="stack" style="gap:6px;align-items:flex-end">' + (open.length ? '<select class="in sm" aria-label="' + esc(t('inviteTo')) + '" data-invite="' + esc(p.partner_id) + '"><option value="">' + esc(t('inviteTo')) + '</option>' + open.map(x => '<option value="' + esc(x.id) + '">' + esc(x.title) + '</option>').join('') + '</select>' : '') +
+      '<button type="button" class="btn ghost small" data-a="npInvite" data-v="' + esc(p.partner_id) + '" data-k="' + esc(p.company) + '">' + esc(t('inviteNew')) + '</button></div>')).join('') + '</div>' : '<p class="muted">' + esc(t('fNone')) + '</p>') +
+      '<span class="small muted">' + esc(t('phoneAfterAward')) + '</span></section>';
+  }
+  return h;
+}
+function clientProjectCard(p) {
+  const st = { open: ['p-amber', 'pjOpen'], awarded: ['p-green', 'pjAwarded'], completed: ['p-blue', 'pjCompleted'], cancelled: ['p-grey', 'pjCancelled'] }[p.status] || ['p-grey', p.status];
+  let h = '<section class="card"><div class="row" style="justify-content:space-between"><span class="pill ' + st[0] + '">' + esc(t(st[1])) + '</span><span class="small muted">' + esc(fmtDate(p.created_at)) + '</span></div>' + projectMeta(p);
+  if (p.status === 'open') h += '<span class="small muted">' + esc(t('quotesSoFar', { n: p.quotes.length }) + (p.invited ? ' · ' + t('invitedN', { n: p.invited }) : '')) + '</span>';
+  if (p.quotes.length) {
+    h += '<div class="list">' + p.quotes.map(q => {
+      let extra = '<div class="stack qprice" style="gap:6px;align-items:flex-end;min-width:150px"><b class="num" style="font-size:20px">' + money(q.amount) + '</b><span class="small muted">' + esc(t('daysN', { n: q.days })) + '</span>';
+      if (p.status === 'open') extra += S.awardConfirm === q.quote_id ? '' : '<button type="button" class="btn blue small" data-a="askAward" data-v="' + esc(q.quote_id) + '">' + esc(t('awardBtn')) + '</button>';
+      if (q.status === 'accepted') extra += '<span class="pill p-green">' + esc(t('qWonClient')) + '</span>' + (q.phone ? '<a class="btn blue small" href="tel:+91' + esc(q.phone) + '">📞 ' + esc(q.phone) + '</a>' : '');
+      extra += '</div>';
+      let row = partnerCardHtml(q, extra) + (q.note ? '<div class="small" style="margin:-4px 0 8px 54px">“' + esc(q.note) + '”</div>' : '');
+      if (S.awardConfirm === q.quote_id) {
+        row += '<div class="panel"><b>' + esc(t('awardConfirmT', { c: q.company })) + '</b><div class="kv small"><span>' + esc(t('inspFee')) + '</span><span class="num">' + money(S.me.projectFees.inspection) + '</span></div>' +
+          '<div class="kv small"><span>' + esc(t('platFee')) + '</span><span class="num">' + money(S.me.projectFees.platform) + '</span></div><div class="kv"><b>' + esc(t('payNow')) + '</b><b class="num">' + money(S.me.projectFees.inspection + S.me.projectFees.platform) + '</b></div>' +
+          '<span class="small muted">' + esc(t('awardNote')) + '</span><div class="row"><button type="button" class="btn primary" data-a="award" data-b="' + esc(p.id) + '" data-v="' + esc(q.quote_id) + '">' + esc(t('payAward', { a: money(S.me.projectFees.inspection + S.me.projectFees.platform) })) + '</button><button type="button" class="btn ghost" data-a="noAward">' + esc(t('cancel')) + '</button></div></div>';
+      }
+      return row;
+    }).join('') + '</div>';
+  } else if (p.status === 'open') h += '<p class="small muted" style="margin:0">' + esc(t('noQuotesYet')) + '</p>';
+  if (p.payment_status === 'pending' && p.status === 'open') h += '<div class="status s-warn">' + esc(t('awardPending')) + '</div>';
+  if (p.status === 'awarded' || p.status === 'completed') h += inspectionLine(p);
+  if (p.status === 'awarded') h += '<button type="button" class="btn ghost small" style="align-self:flex-start" data-a="completeProject" data-v="' + esc(p.id) + '">' + esc(t('markComplete')) + '</button>';
+  if (p.status === 'completed') h += '<div class="row" style="gap:4px;align-items:center"><span class="small">' + esc(t('rateWorker')) + '</span>' + (p.rating && p.rating.dispute_status === 'open' ? '<span class="pill p-amber">' + esc(t('ratingUnderReview')) + '</span>' :
+    [1, 2, 3, 4, 5].map(n => '<button type="button" class="star' + (p.rating && p.rating.stars >= n ? ' on' : '') + '" data-a="prate" data-b="' + esc(p.id) + '" data-v="' + n + '" aria-label="' + n + ' ★">★</button>').join('')) + '</div>';
+  if (p.status === 'open') h += '<div class="row"><button type="button" class="btn ghost small" data-a="inviteMore" data-v="' + esc(p.category ? p.category.id : '') + '">' + esc(t('inviteMore')) + '</button>' + confirmBtn('pj:' + p.id, 'cancelProject', p.id, t('cancelProject')) + '</div>';
+  return h + '</section>';
+}
+
+// ----- admin: marketplace -----
+function renderAdminMarket(A) {
+  let h = '';
+  if (S.atab === 'mprojects' && A.projects) {
+    const staff = A['staff-names'] || [];
+    h += '<section class="card"><h2>Projects marketplace</h2><span class="small muted">Every award charges the client the inspection charge + platform fee (Prices & fees). Assign an inspector (a supervisor) to each awarded project; they record the result from "My inspections".</span>' +
+      '<div class="tablebox"><table><thead><tr><th>Project</th><th>Client</th><th>Budget</th><th>Quotes</th><th>Status</th><th>Awarded to</th><th>Fees</th><th>Inspector</th><th>Inspection</th></tr></thead><tbody>' +
+      (A.projects.length ? A.projects.map(p => '<tr><td><b>' + esc(p.title) + '</b><div class="small muted">' + esc(p.category_en) + ' · ' + esc(p.city) + '</div></td><td>' + esc(p.client_company) + '<div class="small muted">' + esc(p.biz_type) + ' · <span class="num">' + esc(p.client_phone) + '</span></div></td>' +
+        '<td class="num">' + esc(budgetText(p)) + '</td><td class="num">' + p.quote_count + '</td><td><span class="pill p-grey">' + esc(p.status) + '</span>' + (p.payment_status === 'pending' ? '<div class="small muted">payment pending</div>' : '') + '</td>' +
+        '<td>' + (p.awarded ? esc(p.awarded.company) + '<div class="small num">' + money(p.awarded.amount) + ' · ' + esc(p.awarded.phone) + '</div>' : '—') + '</td>' +
+        '<td class="num">' + (p.payment_status === 'paid' ? money(p.inspection_fee + p.platform_fee) : '—') + '</td>' +
+        '<td>' + (['awarded', 'completed'].includes(p.status) ? '<select class="in sm" aria-label="Inspector" data-insp="' + esc(p.id) + '"><option value="">— None —</option>' + staff.map(x => '<option value="' + esc(x.id) + '"' + (p.inspector_id === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select>' : '—') + '</td>' +
+        '<td>' + (['awarded', 'completed'].includes(p.status) ? inspectionAdmin(p) : '—') + '</td></tr>').join('') : '<tr><td colspan="9" class="muted">No projects yet.</td></tr>') + '</tbody></table></div></section>';
+  }
+  if (S.atab === 'myinsp' && A['my-inspections']) {
+    const list = A['my-inspections'].projects;
+    h += list.length ? list.map(p => '<section class="card"><h3>' + esc(p.title) + '</h3><span class="small muted">' + esc(p.category_en) + ' · ' + esc(p.city) + ' · ' + esc(p.site_address || '') + '</span>' +
+      '<div class="small">Client: <b>' + esc(p.client_company) + '</b> <span class="num">' + esc(p.client_phone) + '</span>' + (p.awarded ? ' · Contractor: <b>' + esc(p.awarded.company) + '</b> <span class="num">' + esc(p.awarded.phone) + '</span>' : '') + '</div>' +
+      addressBlock(p, true) + inspectionAdmin(p) + '</section>').join('') : empty('No inspections assigned to you.');
+  }
+  if (S.atab === 'partners' && A.partners) {
+    const rows = A.partners.filter(p => matchQ(p.company, p.phone, p.city));
+    h += '<section class="card"><div class="row" style="justify-content:space-between"><h2>Contractors & professionals (' + A.partners.length + ')</h2><input class="in sm" style="max-width:260px" placeholder="Search name, phone, city" ' + P('q', S.q) + ' id="q-partners"></div>' +
+      '<span class="small muted">"Verified" is shown to clients when documents are checked plus licence or a site visit. Tick only after checking. Set leads to verified-only in Prices & fees.</span>' +
+      '<div class="tablebox"><table><thead><tr><th>Company</th><th>Categories</th><th>Experience</th><th>Licence / GST</th><th>Verification</th><th>Rating</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
+      (rows.length ? rows.map(p => '<tr><td><b>' + esc(p.company) + '</b><div class="small muted"><span class="num">' + esc(p.phone) + '</span> · ' + esc(p.city) + '</div></td>' +
+        '<td class="small">' + esc(p.categories.map(c => c.en).slice(0, 3).join(', ') + (p.categories.length > 3 ? ' +' + (p.categories.length - 3) : '')) + '</td>' +
+        '<td class="small">' + esc((p.experience_years || 0) + ' yrs · team ' + (p.team_size || 0)) + '</td><td class="small">' + esc(p.licence_no || '—') + '<div class="muted">' + esc(p.gst || '') + '</div></td>' +
+        '<td style="white-space:nowrap">' + (p.v.verified ? '<span class="pill p-green">Verified</span>' : '<span class="pill p-grey">Not verified</span>') +
+          [['verified_docs', 'Documents / KYC'], ['verified_licence', 'Licence / registration'], ['verified_site', 'Site / office visit']].map(x => '<label class="row small" style="gap:6px"><input type="checkbox" style="width:20px;height:20px" data-pv="' + esc(p.partner_id) + '" data-fld="' + x[0] + '"' + (p[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>').join('') +
+          (p.reportsAgainst ? '<span class="pill p-red">' + p.reportsAgainst + ' open report(s)</span>' : '') + '</td>' +
+        '<td class="small">' + esc(partnerStatsLine(p)) + '</td>' +
+        '<td><select class="in sm" aria-label="Status" data-ps="' + esc(p.partner_id) + '"><option value="active"' + (p.status === 'active' ? ' selected' : '') + '>Active</option><option value="suspended"' + (p.status === 'suspended' ? ' selected' : '') + '>Suspended</option></select></td>' +
+        '<td style="white-space:nowrap">' + (canDo('open_portals') ? '<button type="button" class="btn blue small" data-a="actAs" data-v="' + esc(p.partner_id) + '">Open</button> ' : '') + confirmBtn('pt:' + p.partner_id, 'delPartner', p.partner_id, 'Delete') + '</td></tr>').join('') : '<tr><td colspan="8" class="muted">No contractors or professionals yet.</td></tr>') + '</tbody></table></div></section>';
+  }
+  if (S.atab === 'categories' && A.svc) {
+    const q = (S.q || '').toLowerCase();
+    h += '<section class="card"><div class="row" style="justify-content:space-between"><h2>Categories (' + A.svc.groups.reduce((a, g) => a + g.categories.filter(c => c.active).length, 0) + ' active)</h2><input id="q-cats" class="in sm" style="max-width:260px" placeholder="Search categories" ' + P('q', S.q) + '></div>' +
+      '<span class="small muted">Edit a name and press Enter or move to the next field to save. Untick to hide a category (existing profiles keep it). Hindi / Marathi names are optional – English is shown when empty.</span></section>';
+    h += A.svc.groups.map(g => {
+      const list = g.categories.filter(c => !q || c.en.toLowerCase().includes(q));
+      if (q && !list.length) return '';
+      return '<section class="card"><details' + (q ? ' open' : '') + '><summary><b>' + esc(g.en) + '</b> <span class="small muted">' + esc(g.hi) + ' · ' + list.length + '</span></summary>' +
+        '<div class="tablebox" style="margin-top:8px"><table><thead><tr><th>English</th><th>Hindi</th><th>Marathi</th><th>Partners</th><th>Active</th></tr></thead><tbody>' +
+        list.map(c => '<tr><td><input class="in sm" style="min-width:220px" aria-label="English name" data-sc="' + esc(c.id) + '" data-fld="en" value="' + esc(c.en) + '"></td><td><input class="in sm" aria-label="Hindi name" data-sc="' + esc(c.id) + '" data-fld="hi" value="' + esc(c.hi) + '"></td>' +
+          '<td><input class="in sm" aria-label="Marathi name" data-sc="' + esc(c.id) + '" data-fld="mr" value="' + esc(c.mr) + '"></td><td class="num">' + c.partners + '</td><td><input type="checkbox" style="width:22px;height:22px" aria-label="Active" data-sca="' + esc(c.id) + '"' + (c.active ? ' checked' : '') + '></td></tr>').join('') +
+        '</tbody></table></div><div class="row" style="align-items:flex-end;margin-top:8px"><label class="f grow">New category in this group<input id="nc-' + esc(g.id) + '" class="in sm" placeholder="e.g. Vastu Consultant"></label><button type="button" class="btn primary small" data-a="addCat" data-v="' + esc(g.id) + '">Add</button></div></details></section>';
+    }).join('');
+  }
+  return h;
+}
+function inspectionAdmin(p) {
+  const s = p.inspection_status || 'none';
+  return '<div class="stack" style="gap:6px;min-width:220px"><span class="pill ' + (s === 'passed' ? 'p-green' : s === 'issues' ? 'p-red' : s === 'scheduled' ? 'p-amber' : 'p-grey') + '">' + esc(s) + '</span>' +
+    (p.inspection_notes ? '<span class="small">' + esc(p.inspection_notes) + '</span>' : '') +
+    '<input id="in-' + esc(p.id) + '" class="in sm" maxlength="1000" placeholder="What did the inspection find?"><div class="row" style="gap:6px"><button type="button" class="btn blue small" data-a="inspResult" data-v="' + esc(p.id) + '" data-k="passed">Passed</button><button type="button" class="btn danger small" data-a="inspResult" data-v="' + esc(p.id) + '" data-k="issues">Issues found</button></div></div>';
+}
+
 function getPath(path) { return path.split('.').reduce((o, k) => (o == null ? o : o[k]), S); }
 function setPath(path, val) { const ks = path.split('.'), last = ks.pop(); const o = ks.reduce((x, k) => (x[k] = x[k] || {}), S); o[last] = val; }
 const chosenKeys = (m) => Object.keys(m || {}).filter(k => m[k]);
@@ -1066,6 +1333,15 @@ document.addEventListener('click', (ev) => {
     askCancel: () => { S.confirmCancel = bid; }, noCancel: () => { S.confirmCancel = ''; },
     askDel: () => { S.confirmDel = v; }, noDel: () => { S.confirmDel = ''; },
     tickTerms: () => { S.f[v] = !S.f[v]; },
+    ppCat: () => { S.pp.cats[v] = !S.pp.cats[v]; },
+    openQuote: () => { const l = S.data.leads.find(x => x.id === bid); const q = l && l.myQuote; S.quoteFor = bid; S.qf = { amount: q ? String(q.amount) : '', days: q ? String(q.days) : (l && l.duration_days ? String(l.duration_days) : ''), note: q ? q.note : '' }; },
+    closeQuote: () => { S.quoteFor = ''; },
+    askAward: () => { S.awardConfirm = v; }, noAward: () => { S.awardConfirm = ''; },
+    npUninvite: () => { S.np.invite = S.np.invite.filter(x => x.id !== v); },
+    npOnlyInvited: () => { S.np.onlyInvited = !S.np.onlyInvited; },
+    npInvite: () => { if (!S.np.invite.some(x => x.id === v)) S.np.invite.push({ id: v, name: b.getAttribute('data-k') }); if (!S.np.categoryId) S.np.categoryId = S.dir.category; S.f.mk = 'post'; toast(t('addedToInvite')); },
+    dirToggle: () => { S.dir[v] = !S.dir[v]; },
+    pAskDispute: () => { S.pdisputeFor = v; S.f.disputeText = ''; }, pNoDispute: () => { S.pdisputeFor = ''; },
     showTerms: () => { showTerms(); },
     askOpen: () => { const j = S.data.jobs.find(x => x.id === bid); S.askFor = bid; S.f.ask = { wage: j ? String(j.wage + 100) : '', travel: j ? String(j.travel_per_day || 0) : '', note: '' }; },
     askClose: () => { S.askFor = ''; },
@@ -1089,13 +1365,13 @@ document.addEventListener('click', (ev) => {
     toggleCfg: () => { const k = b.getAttribute('data-k'); S.cfgDraft = Object.assign({}, S.cfgDraft || S.admin.settings); S.cfgDraft[k] = S.cfgDraft[k] ? 0 : 1; },
   };
   if (simple[a]) { simple[a](); render(); return; }
-  const tabsAct = { ctab: 'ctab', wtab: 'wtab', atab: 'atab' };
-  if (tabsAct[a]) { S[a] = v; S.confirmDel = ''; S.confirmDelUser = ''; S.edit = null; S.q = ''; S.cfgDraft = null; if (a === 'wtab' && v === 'profile') fillWorkerForm(); render(); loadTab().then(render); return; }
+  const tabsAct = { ctab: 'ctab', wtab: 'wtab', atab: 'atab', ptab: 'ptab' };
+  if (tabsAct[a]) { S[a] = v; S.confirmDel = ''; S.confirmDelUser = ''; S.edit = null; S.q = ''; S.cfgDraft = null; if (a === 'wtab' && v === 'profile') fillWorkerForm(); if (a === 'ptab' && v === 'profile') fillPartnerForm(); render(); loadTab().then(render); return; }
 
   const actions = {
     sendOtp: async () => { const r = await api('POST', '/api/auth/request-otp', { phone: S.login.phone, lang: S.lang }); S.login.sent = true; S.login.devCode = r.devCode || ''; },
     verifyOtp: async () => {
-      const portal = v === 'worker' || v === 'contractor' ? v : (S.portal === 'worker' || S.portal === 'contractor') ? S.portal : undefined;
+      const portal = ['worker', 'contractor', 'partner'].includes(v) ? v : ['worker', 'contractor', 'partner'].includes(S.portal) ? S.portal : undefined;
       try { await api('POST', '/api/auth/verify-otp', { phone: S.login.phone, code: S.login.code, lang: S.lang, portal }); }
       catch (e) { if (e.code === 'not_registered') S.login.unreg = true; throw e; }
       S.login = { phone: '', code: '', sent: false, devCode: '' }; await refresh();
@@ -1107,7 +1383,7 @@ document.addEventListener('click', (ev) => {
     trialW: async () => { const d = n0((document.getElementById('trial-' + v) || {}).value); await api('POST', '/api/admin/workers/' + v + '/trial', { days: d }); toast('Free trial given'); await loadTab(); },
     logout: async () => { await api('POST', '/api/auth/logout'); S.view = 'app'; store('view', 'app'); S.portal = ''; store('portal', ''); await loadMe(); },
     chooseRole: async () => { await api('POST', '/api/me/role', { role: v }); await loadMe(); },
-    saveContractor: async () => { const r = await api('POST', '/api/contractor/profile', { company: S.f.company, gst: S.f.gst, coupon: S.f.coupon || '' }); if (r.coupon) toast(t('couponApplied', { c: r.coupon.label })); S.f.coupon = ''; await refresh(); },
+    saveContractor: async () => { const r = await api('POST', '/api/contractor/profile', { company: S.f.company, gst: S.f.gst, bizType: S.f.bizType, coupon: S.f.coupon || '' }); if (r.coupon) toast(t('couponApplied', { c: r.coupon.label })); S.f.coupon = ''; await refresh(); },
     saveWorker: async () => { const r = await api('POST', '/api/worker/profile', { name: S.f.wname, area: S.f.warea, experience: S.f.wexp, upiId: S.f.wupi, coupon: S.me.worker ? '' : (S.f.coupon || ''), skills: Object.keys(S.f.wskills).filter(k => S.f.wskills[k]) }); toast(r.coupon ? t('couponApplied', { c: r.coupon.label }) : t('saved')); S.f.coupon = ''; await refresh(); },
     applyCoupon: async () => { const r = await api('POST', '/api/coupon/apply', { code: S.f.couponCode || '' }); S.f.couponCode = ''; toast(t('couponApplied', { c: r.coupon.label })); await refresh(); },
     book: async () => {
@@ -1227,6 +1503,50 @@ document.addEventListener('click', (ev) => {
       toast('Resolved'); await loadTab(); S.admin.overview = await api('GET', '/api/admin/overview');
     },
     supNotice: async () => { const el = document.getElementById('sn-' + v); const r = await api('POST', '/api/admin/bookings/' + v + '/notice', { text: el ? el.value : '' }); toast('Sent to ' + r.sentTo + ' workers'); },
+    savePartner: async () => {
+      await loadCats();
+      const f = S.pp;
+      await api('POST', '/api/partner/profile', { company: f.company, contactName: f.contactName, city: f.city, areas: f.areas, experienceYears: n0(f.experienceYears), teamSize: n0(f.teamSize), gst: f.gst, licenceNo: f.licenceNo, about: f.about, categories: Object.keys(f.cats).filter(k => f.cats[k]) });
+      toast(t('saved')); S.ptab = 'leads'; await refresh();
+    },
+    sendQuote: async () => {
+      if (!S.f.qterms) throw new Error(t('err_terms_required'));
+      await api('POST', '/api/partner/projects/' + bid + '/quote', { amount: n0(S.qf.amount), days: n0(S.qf.days), note: S.qf.note, acceptTerms: true });
+      S.quoteFor = ''; toast(t('quoteSent')); await loadTab();
+    },
+    withdrawQuote: async () => { await api('POST', '/api/partner/quotes/' + v + '/withdraw'); toast(t('quoteWithdrawn')); await loadTab(); },
+    pSendDispute: async () => { await api('POST', '/api/partner/ratings/' + v + '/dispute', { text: S.f.disputeText }); S.pdisputeFor = ''; toast(t('disputeSentToast')); await loadTab(); },
+    postProject: async () => {
+      if (!S.f.pterms) throw new Error(t('err_terms_required'));
+      const f = S.np;
+      const r = await api('POST', '/api/client/projects', { categoryId: f.categoryId, title: f.title, description: f.description, city: f.city, siteAddress: f.siteAddress, siteLat: f.lat, siteLng: f.lng,
+        budgetMin: f.budgetMin === '' ? null : n0(f.budgetMin), budgetMax: f.budgetMax === '' ? null : n0(f.budgetMax), startDate: f.startDate || null, durationDays: f.durationDays === '' ? null : n0(f.durationDays),
+        invite: f.invite.map(x => x.id), invitedOnly: f.onlyInvited, acceptTerms: true });
+      S.np = { categoryId: '', title: '', description: '', city: '', siteAddress: '', lat: null, lng: null, budgetMin: '', budgetMax: '', startDate: '', durationDays: '', invite: [], onlyInvited: false };
+      S.f.mk = 'mine'; toast(t('projectPosted', { n: r.notified })); await loadTab();
+    },
+    npLocate: async () => {
+      if (!navigator.geolocation) throw new Error(t('locationFailed'));
+      const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, () => fail(new Error(t('locationFailed'))), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }));
+      S.np.lat = Math.round(pos.coords.latitude * 1e6) / 1e6; S.np.lng = Math.round(pos.coords.longitude * 1e6) / 1e6;
+    },
+    dirSearch: async () => {
+      const q = new URLSearchParams(); if (S.dir.category) q.set('category', S.dir.category); if (S.dir.city) q.set('city', S.dir.city); if (S.dir.verified) q.set('verified', '1');
+      const r = await api('GET', '/api/client/partners?' + q.toString()); S.dir.results = r.partners; S.dir.total = r.total;
+    },
+    inviteMore: async () => { S.f.mk = 'dir'; S.dir.category = v; const r = await api('GET', '/api/client/partners?category=' + encodeURIComponent(v)); S.dir.results = r.partners; S.dir.total = r.total; },
+    award: async () => {
+      const r = await api('POST', '/api/client/projects/' + bid + '/award', { quoteId: v });
+      S.awardConfirm = '';
+      if (r.payment) { const ok = await pay(r.payment, t('awardBtn')); if (!ok) { await loadTab(); return; } }
+      toast(t('awardDone')); await loadTab();
+    },
+    completeProject: async () => { await api('POST', '/api/client/projects/' + v + '/complete'); toast(t('saved')); await loadTab(); },
+    cancelProject: async () => { await api('POST', '/api/client/projects/' + v + '/cancel'); S.confirmDelUser = ''; toast(t('saved')); await loadTab(); },
+    prate: async () => { await api('POST', '/api/client/projects/' + bid + '/rate', { stars: n0(v) }); toast(t('ratedToast')); await loadTab(); },
+    addCat: async () => { const el = document.getElementById('nc-' + v); await api('POST', '/api/admin/svc/categories', { group_id: v, en: el ? el.value : '' }); toast('Category added'); S.cats = null; await loadTab(); },
+    delPartner: async () => { await api('DELETE', '/api/admin/partners/' + v); S.confirmDelUser = ''; toast('Deleted'); await loadTab(); },
+    inspResult: async () => { const el = document.getElementById('in-' + v); await api('POST', '/api/admin/projects/' + v + '/inspection', { status: b.getAttribute('data-k'), notes: el ? el.value : '' }); toast('Inspection saved – client and contractor told on WhatsApp'); await loadTab(); },
     cashReceived: async () => { await api('POST', '/api/admin/workers/' + v + '/cash-received'); toast('Membership activated'); await loadTab(); },
   };
   if (actions[a]) act(actions[a]);
@@ -1235,7 +1555,7 @@ document.addEventListener('input', (ev) => {
   const el = ev.target;
   const lf = el.getAttribute('data-lf'); if (lf) { S.login[lf] = el.value; return; }
   const af = el.getAttribute('data-af'); if (af) { S.adm[af] = el.value; return; }
-  const pp = el.getAttribute('data-p'); if (pp && el.tagName !== 'SELECT') { setPath(pp, el.value); if (pp === 'q' || pp.startsWith('pf.')) render(); return; }
+  const pp = el.getAttribute('data-p'); if (pp && el.tagName !== 'SELECT') { setPath(pp, el.value); if (pp === 'q' || pp.startsWith('pf.') || pp === 'pp.catQ') render(); return; }
   const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; if (k === 'travel') render(); return; }
   const c = el.getAttribute('data-cfg'); if (c) { S.cfgDraft = Object.assign({}, S.cfgDraft || S.admin.settings); S.cfgDraft[c] = n0(el.value); }
 });
@@ -1256,6 +1576,12 @@ document.addEventListener('change', (ev) => {
     if (!body.status) return;
     act(async () => { await api('POST', '/api/contractor/bookings/' + rg + '/attendance', body); await loadReg(rg); await loadTab(); }); return;
   }
+  const inv = el.getAttribute('data-invite'); if (inv && el.value) { const pid = el.value; act(async () => { const r = await api('POST', '/api/client/projects/' + pid + '/invite', { partnerIds: [inv] }); toast(t('invitedToast', { n: r.invited })); await loadTab(); }); return; }
+  const insp = el.getAttribute('data-insp'); if (insp) { act(async () => { await api('POST', '/api/admin/projects/' + insp + '/inspector', { staffId: el.value }); toast('Inspector assigned'); await loadTab(); }); return; }
+  const pv = el.getAttribute('data-pv'); if (pv) { act(async () => { await api('PATCH', '/api/admin/partners/' + pv, { [el.getAttribute('data-fld')]: el.checked }); toast('Saved'); await loadTab(); }); return; }
+  const ps = el.getAttribute('data-ps'); if (ps) { act(async () => { await api('PATCH', '/api/admin/partners/' + ps, { status: el.value }); toast('Saved'); await loadTab(); }); return; }
+  const sc = el.getAttribute('data-sc'); if (sc) { act(async () => { await api('PATCH', '/api/admin/svc/categories/' + sc, { [el.getAttribute('data-fld')]: el.value }); toast('Saved'); S.cats = null; }); return; }
+  const sca = el.getAttribute('data-sca'); if (sca) { act(async () => { await api('PATCH', '/api/admin/svc/categories/' + sca, { active: el.checked }); toast('Saved'); S.cats = null; await loadTab(); }); return; }
   const cv = el.getAttribute('data-cv'); if (cv) { act(async () => { await api('PATCH', '/api/admin/contractors/' + cv, { [el.getAttribute('data-fld')]: el.checked }); toast('Saved'); await loadTab(); }); return; }
   const cpa = el.getAttribute('data-cpa'); if (cpa) { act(async () => { await api('PATCH', '/api/admin/coupons/' + cpa, { active: el.checked }); toast('Saved'); await loadTab(); }); return; }
   const gp = el.getAttribute('data-gp'); if (gp) {
@@ -1277,7 +1603,7 @@ document.addEventListener('change', (ev) => {
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter') return;
-  if (ev.target.matches('[data-sk],[data-wk],[data-cp],[data-wp]')) ev.target.blur();
+  if (ev.target.matches('[data-sk],[data-wk],[data-cp],[data-wp],[data-sc]')) ev.target.blur();
   if (ev.target.id === 'l-phone') document.querySelector('[data-a="sendOtp"]').click();
   if (ev.target.id === 'a-pass') document.querySelector('[data-a="adminLogin"]').click();
   if (ev.target.id === 'l-code') document.querySelector('[data-a="verifyOtp"]').click();

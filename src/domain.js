@@ -179,6 +179,8 @@ async function fulfilPayment(paymentId, rzpPaymentId) {
     await activateWorkerMembership(p.ref_id, 'upi', p.rzp_subscription_id);
   } else if (p.kind === 'contractor_plan') {
     await activateContractorPlan(p.ref_id, p.rzp_subscription_id);
+  } else if (p.kind === 'project') {
+    await require('./projects').projectPaid(p.ref_id);
   }
 }
 

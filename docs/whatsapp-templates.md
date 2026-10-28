@@ -102,3 +102,12 @@ Until these are approved, the app still records the messages in the WhatsApp out
 | lk_counter_offer | Builder | A worker asks for a higher wage and/or travel money | name, skill, site, wage, travel |
 | lk_counter_declined | Worker | The builder declines the request | site, wage |
 | lk_auto_replaced | Builder | A worker says no and another worker is put on at no extra cost | old, new, site |
+
+## Projects marketplace templates
+
+| Template name | Sent to | When | Variables in order |
+|---|---|---|---|
+| lk_new_lead | Contractor / professional | A project is posted in their category, or they are invited | category, title, city, budget |
+| lk_quote_received | Client | A contractor sends a quote | company, title, amount |
+| lk_project_awarded | Contractor / professional | Client awards the work and pays the fees | title, client, phone |
+| lk_inspection_result | Client and contractor | Inspector records Passed / Issues found | title, result, notes |

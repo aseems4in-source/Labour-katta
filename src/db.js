@@ -215,16 +215,82 @@ const MIGRATIONS = [
      status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, decided_at TEXT
    );
    CREATE INDEX counter_offers_booking ON counter_offers(booking_id, status);`,
+  // 9: Projects marketplace — contractors / professionals ("partners"), project requirements, quotes, awards with
+  //    inspection + platform fee, inspections and ratings. Rebuilds users and payments to allow the new role and payment kind.
+  `CREATE TABLE users_new (
+     id TEXT PRIMARY KEY, phone TEXT NOT NULL UNIQUE,
+     role TEXT CHECK (role IN ('worker','contractor','partner')),
+     lang TEXT NOT NULL DEFAULT 'en', created_at TEXT NOT NULL, deleted_at TEXT, terms_accepted_at TEXT
+   );
+   INSERT INTO users_new (id, phone, role, lang, created_at, deleted_at, terms_accepted_at) SELECT id, phone, role, lang, created_at, deleted_at, terms_accepted_at FROM users;
+   DROP TABLE users;
+   ALTER TABLE users_new RENAME TO users;
+   CREATE TABLE payments_new (
+     id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+     kind TEXT NOT NULL CHECK (kind IN ('booking','worker_membership','contractor_plan','project')),
+     ref_id TEXT NOT NULL, amount INTEGER NOT NULL,
+     rzp_order_id TEXT, rzp_subscription_id TEXT, rzp_payment_id TEXT,
+     status TEXT NOT NULL, test INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+   );
+   INSERT INTO payments_new SELECT id, user_id, kind, ref_id, amount, rzp_order_id, rzp_subscription_id, rzp_payment_id, status, test, created_at, updated_at FROM payments;
+   DROP TABLE payments;
+   ALTER TABLE payments_new RENAME TO payments;
+   CREATE INDEX payments_order ON payments(rzp_order_id);
+   CREATE INDEX payments_sub ON payments(rzp_subscription_id);
+   ALTER TABLE contractors ADD COLUMN biz_type TEXT NOT NULL DEFAULT 'builder';
+   CREATE TABLE svc_groups (id TEXT PRIMARY KEY, en TEXT NOT NULL, hi TEXT NOT NULL DEFAULT '', mr TEXT NOT NULL DEFAULT '', sort INTEGER NOT NULL DEFAULT 0);
+   CREATE TABLE svc_categories (
+     id TEXT PRIMARY KEY, group_id TEXT NOT NULL, en TEXT NOT NULL, hi TEXT NOT NULL DEFAULT '', mr TEXT NOT NULL DEFAULT '',
+     active INTEGER NOT NULL DEFAULT 1, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+   );
+   CREATE TABLE partners (
+     user_id TEXT PRIMARY KEY REFERENCES users(id), company TEXT NOT NULL, contact_name TEXT NOT NULL DEFAULT '',
+     city TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '', experience_years INTEGER NOT NULL DEFAULT 0, team_size INTEGER NOT NULL DEFAULT 0,
+     gst TEXT NOT NULL DEFAULT '', licence_no TEXT NOT NULL DEFAULT '', about TEXT NOT NULL DEFAULT '',
+     verified_docs INTEGER NOT NULL DEFAULT 0, verified_licence INTEGER NOT NULL DEFAULT 0, verified_site INTEGER NOT NULL DEFAULT 0,
+     status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
+   );
+   CREATE TABLE partner_categories (partner_id TEXT NOT NULL, category_id TEXT NOT NULL, PRIMARY KEY (partner_id, category_id));
+   CREATE INDEX partner_categories_cat ON partner_categories(category_id);
+   CREATE TABLE projects (
+     id TEXT PRIMARY KEY, client_id TEXT NOT NULL, category_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+     city TEXT NOT NULL DEFAULT '', site_address TEXT NOT NULL DEFAULT '', site_lat REAL, site_lng REAL,
+     budget_min INTEGER, budget_max INTEGER, start_date TEXT, duration_days INTEGER,
+     invited_only INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'open',
+     awarded_quote_id TEXT, inspection_fee INTEGER NOT NULL DEFAULT 0, platform_fee INTEGER NOT NULL DEFAULT 0, payment_status TEXT NOT NULL DEFAULT 'none',
+     inspector_id TEXT, inspection_status TEXT NOT NULL DEFAULT 'none', inspection_notes TEXT NOT NULL DEFAULT '', inspection_at TEXT,
+     terms_accepted_at TEXT, created_at TEXT NOT NULL, awarded_at TEXT, completed_at TEXT
+   );
+   CREATE INDEX projects_status ON projects(status, category_id);
+   CREATE INDEX projects_client ON projects(client_id);
+   CREATE TABLE project_invites (project_id TEXT NOT NULL, partner_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (project_id, partner_id));
+   CREATE TABLE quotes (
+     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, partner_id TEXT NOT NULL, amount INTEGER NOT NULL, days INTEGER NOT NULL,
+     note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'submitted', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+     UNIQUE (project_id, partner_id)
+   );
+   CREATE TABLE project_ratings (
+     project_id TEXT PRIMARY KEY, partner_id TEXT NOT NULL, client_id TEXT NOT NULL,
+     stars INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5), comment TEXT NOT NULL DEFAULT '',
+     dispute TEXT NOT NULL DEFAULT '', dispute_status TEXT NOT NULL DEFAULT 'none', created_at TEXT NOT NULL
+   );`,
 ];
 
 db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
 const current = (db.prepare('SELECT version FROM schema_version').get() || { version: 0 }).version;
 if (!db.prepare('SELECT 1 FROM schema_version').get()) db.prepare('INSERT INTO schema_version (version) VALUES (0)').run();
+// Foreign keys are switched off while migrating (some steps rebuild tables), then checked and switched back on.
+if (current < MIGRATIONS.length) db.pragma('foreign_keys = OFF');
 for (let i = current; i < MIGRATIONS.length; i++) {
   db.transaction(() => {
     db.exec(MIGRATIONS[i]);
     db.prepare('UPDATE schema_version SET version = ?').run(i + 1);
   })();
+}
+if (current < MIGRATIONS.length) {
+  const broken = db.pragma('foreign_key_check');
+  if (broken.length) console.warn('[db] foreign key problems after migration:', broken.length);
+  db.pragma('foreign_keys = ON');
 }
 
 // ---- seed defaults (only when empty) ----
@@ -233,6 +299,7 @@ const DEFAULT_SETTINGS = {
   contractor_plan: 599, job_fee: 99, qc_per_day: 500, margin_per_worker_day: 150,
   silver_bonus: 50, gold_bonus: 100, worker_membership_required: 1, platform_fee_per_worker: 20,
   ot_multiplier: 2, reminder_hour: 18, confirm_hours_before: 2,
+  project_inspection_fee: 2000, project_platform_fee: 1000, partner_leads_verified_only: 0,
 };
 const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, String(v));
@@ -253,6 +320,19 @@ if (db.prepare('SELECT COUNT(*) AS n FROM skills').get().n === 0) {
   const ins = db.prepare('INSERT INTO skills (id, cat, en, hi, mr, wage, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const now = new Date().toISOString();
   db.transaction(() => DEFAULT_SKILLS.forEach((s, i) => ins.run('s' + String(i + 1).padStart(2, '0'), s[0], s[1], s[2], s[3], s[4], now)))();
+}
+
+// Seed the Projects marketplace categories once (the admin edits them afterwards).
+if (!db.prepare('SELECT 1 FROM svc_groups LIMIT 1').get()) {
+  const groups = require('./data/categories');
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    let n = 0;
+    groups.forEach((g, gi) => {
+      db.prepare('INSERT INTO svc_groups (id, en, hi, mr, sort) VALUES (?, ?, ?, ?, ?)').run(g.id, g.en, g.hi, g.mr, gi);
+      g.items.forEach((name, ii) => { n++; db.prepare('INSERT INTO svc_categories (id, group_id, en, sort, created_at) VALUES (?, ?, ?, ?, ?)').run('c' + String(n).padStart(3, '0'), g.id, name, ii, now); });
+    });
+  })();
 }
 
 function getSettings() {

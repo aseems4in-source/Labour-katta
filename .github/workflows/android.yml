@@ -1,6 +1,6 @@
 # Builds the BUILDMATE Android APK on GitHub's servers.
 # Setup (once): GitHub repo → Settings → Secrets and variables → Actions →
-#   Variables: APP_URL = https://your-app.onrender.com   (required)
+#   Variables: APP_URL = https://your-app.onrender.com   (optional; defaults to https://labour-katta.onrender.com)
 #   Secrets (optional, for a signed release you can publish on Play Store):
 #     ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
 # Run: Actions tab → "Build Android APK" → Run workflow. Download the APK from the run's Artifacts.
@@ -18,18 +18,21 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      APP_URL: ${{ vars.APP_URL || 'https://labour-katta.onrender.com' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
+      # GitHub's Ubuntu machines already have the Android SDK; just add what we need.
       - name: Install Android platform
-        run: sdkmanager "platforms;android-35" "build-tools;34.0.0"
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;34.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -37,7 +40,8 @@ jobs:
 
       - name: Check APP_URL
         run: |
-          if [ -z "${{ vars.APP_URL }}" ]; then echo "Set the APP_URL repository variable to your server address (https://...)"; exit 1; fi
+          echo "App will open: $APP_URL"
+          case "$APP_URL" in https://*) ;; *) echo "APP_URL must start with https://"; exit 1;; esac
 
       - name: Prepare signing key
         if: env.HAS_KEYSTORE == 'true'
@@ -54,7 +58,7 @@ jobs:
         run: |
           TASK=assembleDebug
           if [ -n "$LK_KEYSTORE_FILE" ]; then TASK="assembleRelease bundleRelease"; fi
-          gradle $TASK -PappUrl="${{ vars.APP_URL }}" -PversionCode=${{ github.run_number }} --no-daemon
+          gradle $TASK -PappUrl="$APP_URL" -PversionCode=${{ github.run_number }} --no-daemon
 
       - name: Name the files
         run: |

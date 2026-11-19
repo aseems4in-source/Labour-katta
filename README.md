@@ -1,8 +1,8 @@
-# Labour Katta
+# BuildMate
 
-The Labour Katta app connects builders and contractors with skilled and unskilled construction workers in Mumbai. It is one Node.js server plus an installable mobile web app (PWA) in English, Hindi and Marathi.
+The BuildMate app connects builders and contractors with skilled and unskilled construction workers in Nashik. It is one Node.js server plus an installable mobile web app (PWA) in English, Hindi and Marathi.
 
-- **Contractors** sign in with their phone and book workers by trade, count, days, level and site. They pay through Labour Katta or pay workers directly, see the assigned team with phone numbers, mark attendance, request replacements, and subscribe to the ₹599/month plan by UPI AutoPay.
+- **Contractors** sign in with their phone and book workers by trade, count, days, level and site. They pay through BuildMate or pay workers directly, see the assigned team with phone numbers, mark attendance, request replacements, and subscribe to the ₹599/month plan by UPI AutoPay.
 - **Workers** sign in, pick their skills, and start a membership: ₹9 for the first month then ₹79/month by UPI AutoPay, or ₹79/month in cash. They get matching job offers on WhatsApp and in the app, accept jobs, see earnings and confirm direct cash payments.
 - **Admins** edit every price and fee, add or remove skills (names in three languages), set worker tiers and custom wages, tick verifications, confirm cash memberships, and see bookings, payments and every WhatsApp message.
 
@@ -44,7 +44,7 @@ Any host that runs Docker or Node.js and gives you a **persistent disk** works, 
 1. Activate your Razorpay account (business KYC) and enable **Subscriptions** with **UPI AutoPay**.
 2. Dashboard → API Keys: put `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in the server settings. Never in the app or in chat.
 3. Dashboard → Webhooks → add `https://YOUR-DOMAIN/api/webhooks/razorpay` with a secret, and set it as `RAZORPAY_WEBHOOK_SECRET`. Tick these events: `payment.captured`, `order.paid`, `subscription.authenticated`, `subscription.activated`, `subscription.charged`, `subscription.halted`, `subscription.cancelled`, `subscription.completed`.
-4. Use **test keys first** (`rzp_test_…`) and run through: a booking paid through Labour Katta, the worker ₹9→₹79 membership, and the ₹599 contractor plan. The ₹9 first month is a one-time add-on charged when the AutoPay mandate is set up, with the ₹79 plan starting 30 days later. Confirm this shows correctly in Razorpay's test checkout before switching to live keys.
+4. Use **test keys first** (`rzp_test_…`) and run through: a booking paid through BuildMate, the worker ₹9→₹79 membership, and the ₹599 contractor plan. The ₹9 first month is a one-time add-on charged when the AutoPay mandate is set up, with the ₹79 plan starting 30 days later. Confirm this shows correctly in Razorpay's test checkout before switching to live keys.
 5. Plans are created automatically. When an admin changes a price, new subscriptions use a new plan at the new price. Existing subscribers stay on their old price.
 
 ### 3. WhatsApp (Meta WhatsApp Cloud API)
@@ -61,7 +61,7 @@ If you use a provider such as Gupshup or Interakt instead of Meta directly, only
 - Optional: publish to Google Play as a Trusted Web Activity (TWA) wrapper around this PWA, using Bubblewrap or PWABuilder.
 
 ## Android app (APK)
-The `android/` folder is a native Android app that opens your live Labour Katta server full-screen. It handles UPI apps for Razorpay payments, WhatsApp and phone links, the back button, and an offline screen in three languages. Deploy the server first, because the app needs its https address.
+The `android/` folder is a native Android app that opens your live BuildMate server full-screen. It handles UPI apps for Razorpay payments, WhatsApp and phone links, the back button, and an offline screen in three languages. Deploy the server first, because the app needs its https address.
 
 **Build in the cloud with GitHub (no setup on your computer):**
 1. Put this project in a GitHub repository.
@@ -73,7 +73,7 @@ The `android/` folder is a native Android app that opens your live Labour Katta 
 
 ## Not included yet
 - **Wage payouts to workers.** Saturday payouts need RazorpayX Payouts or Cashfree Payouts. Earnings are tracked in the app; transfers are done manually until this is added.
-- **Automated Aadhaar e-KYC.** Admins tick verifications after checking documents at the Katta centre. Connect a licensed e-KYC provider later, and store only the result.
+- **Automated Aadhaar e-KYC.** Admins tick verifications after checking documents at the BuildMate centre. Connect a licensed e-KYC provider later, and store only the result.
 - **Automatic refunds.** Cancelled paid bookings are refunded from the Razorpay dashboard. The app tells the contractor the team will contact them.
 
 ## Project layout
@@ -121,7 +121,7 @@ The scheduler runs inside the web server every 5 minutes. Set `DISABLE_SCHEDULER
 ## Asking for more money, travel money, automatic replacement, terms
 
 - **Ask for more money:** on a job offer, a worker can ask for a higher daily wage (up to 3× the offer) and/or more travel money, with a note. The builder gets a WhatsApp message and Accept / Decline in the app.
-  - On Accept, the worker is booked at the agreed amounts. If the builder paid through Labour Katta, they pay the agreed extra directly to the worker.
+  - On Accept, the worker is booked at the agreed amounts. If the builder paid through BuildMate, they pay the agreed extra directly to the worker.
   - On Decline, the worker is told and can still accept at the normal wage.
 - **Travel money:** set per worker per day on the booking form. It shows as its own line in the cost breakdown, register and earnings.
 - **Additional hourly charges:** paid for extra hours (₹ per hour) entered in the attendance register.

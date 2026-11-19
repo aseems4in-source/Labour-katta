@@ -23,7 +23,7 @@ import android.widget.Toast;
 import java.net.URISyntaxException;
 
 /**
- * Labour Katta Android app: a secure full-screen WebView around the Labour Katta web app
+ * BuildMate Android app: a secure full-screen WebView around the BuildMate web app
  * (BuildConfig.APP_URL). Pages from the app's own domain and Razorpay open inside the app;
  * UPI, WhatsApp and phone links open the matching app on the phone; other links open in the browser.
  */

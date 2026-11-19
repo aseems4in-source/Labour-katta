@@ -26,6 +26,7 @@ const config = {
   baseUrl: env.BASE_URL || `http://localhost:${env.PORT || 3000}`,
   dbFile: env.DB_FILE || path.join(__dirname, '..', 'data', 'labour-katta.db'),
   jwtSecret: env.JWT_SECRET || (isProd ? '' : 'dev-only-secret-change-me'),
+  launchCity: (env.LAUNCH_CITY || 'Nashik').trim(),
   adminPhones: (env.ADMIN_PHONES || '').split(',').map(s => s.replace(/\D/g, '').slice(-10)).filter(Boolean),
   // Username + password login for the Admin panel. Set ADMIN_PASSWORD only in the server's private settings.
   // Trimmed so a stray space pasted into the hosting dashboard doesn't break the login.

@@ -210,7 +210,7 @@ r.post('/worker/work/:id/paid', auth.requireRole('worker'), async (req, res) => 
   const row = db.prepare(`SELECT a.*, b.site, b.pay_mode FROM assignments a JOIN bookings b ON b.id = a.booking_id
     WHERE a.booking_id = ? AND a.worker_id = ? AND a.status = 'active'`).get(req.params.id, req.user.id);
   if (!row) throw new HttpError(404, 'Job not found.', 'not_found');
-  if (row.pay_mode !== 'direct') throw bad('This job is paid by Labour Katta.');
+  if (row.pay_mode !== 'direct') throw bad('This job is paid by BuildMate.');
   db.prepare('UPDATE assignments SET paid_confirmation = ? WHERE booking_id = ? AND worker_id = ?').run(received ? 'yes' : 'no', req.params.id, req.user.id);
   if (!received) {
     const w = domain.getWorker(req.user.id);

@@ -76,6 +76,7 @@ r.get('/me', (req, res) => {
     integrations: { payments: config.razorpay.live ? 'live' : 'test', whatsapp: config.whatsapp.live ? 'live' : 'test' },
     razorpayKeyId: config.razorpay.live ? config.razorpay.keyId : null,
     adminSession: Boolean(req.adminSession), adminPasswordLogin: true,
+    launchCity: config.launchCity, areas: require('../data/areas')[config.launchCity] || [],
     admin: req.admin ? { name: req.admin.name, root: req.admin.root, group: req.admin.group || '', perms: req.admin.perms, staffId: req.admin.staffId } : null,
   };
   if (!req.user) return res.json(Object.assign(base, { user: null }));

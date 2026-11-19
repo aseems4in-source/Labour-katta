@@ -1,7 +1,7 @@
 {
   "name": "labour-katta",
   "version": "1.0.0",
-  "description": "Labour Katta: construction labour booking app (workers, contractors, admin) with Razorpay UPI AutoPay and WhatsApp.",
+  "description": "BuildMate: construction labour booking app (workers, contractors, admin) with Razorpay UPI AutoPay and WhatsApp.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

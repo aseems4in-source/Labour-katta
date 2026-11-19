@@ -11,7 +11,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.labourkatta.app'
+        applicationId 'com.buildmate.app'
         minSdk 24
         targetSdk 35
         versionCode((project.findProperty('versionCode') ?: '1').toString().toInteger())

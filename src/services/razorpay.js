@@ -50,7 +50,7 @@ async function ensurePlan(kind, amount, name) {
  * before going live.
  */
 async function createWorkerSubscription({ monthly, firstMonth, notes }) {
-  const planId = await ensurePlan('worker_membership', monthly, `Labour Katta worker membership ₹${monthly}/month`);
+  const planId = await ensurePlan('worker_membership', monthly, `BuildMate worker membership ₹${monthly}/month`);
   const startAt = Math.floor(Date.now() / 1000) + 30 * 86400;
   const body = { plan_id: planId, total_count: 120, quantity: 1, customer_notify: 1, start_at: startAt, notes };
   if (firstMonth > 0) body.addons = [{ item: { name: 'First month', amount: paise(firstMonth), currency: 'INR' } }];
@@ -58,7 +58,7 @@ async function createWorkerSubscription({ monthly, firstMonth, notes }) {
 }
 
 async function createContractorSubscription({ monthly, notes }) {
-  const planId = await ensurePlan('contractor_plan', monthly, `Labour Katta contractor plan ₹${monthly}/month`);
+  const planId = await ensurePlan('contractor_plan', monthly, `BuildMate contractor plan ₹${monthly}/month`);
   return call('POST', '/subscriptions', { plan_id: planId, total_count: 120, quantity: 1, customer_notify: 1, notes });
 }
 

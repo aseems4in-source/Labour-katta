@@ -1,7 +1,7 @@
 'use strict';
 // Projects marketplace: builders, architects, developers and owners ("clients") post requirements; contractors,
 // professionals and suppliers ("partners") quote; the client awards one quote and pays the inspection (quality) charge
-// plus the platform fee for that transaction; Labour Katta assigns an inspector who records the result.
+// plus the platform fee for that transaction; BuildMate assigns an inspector who records the result.
 const { db, getSettings } = require('./db');
 const { id, nowIso, todayIST, formatDate, rupees, HttpError, bad } = require('./util');
 const wa = require('./services/whatsapp');
@@ -90,16 +90,28 @@ function validateProject(body) {
   if (start && (!/^\d{4}-\d{2}-\d{2}$/.test(start) || start < todayIST())) throw bad('Choose a start date from today onwards.');
   const dur = body.durationDays == null || body.durationDays === '' ? null : Number(body.durationDays);
   if (dur != null && (!Number.isInteger(dur) || dur < 1 || dur > 2000)) throw bad('Duration must be between 1 and 2000 days.');
+  // Optional daily labour alongside the contractor: [{ skillId, count }]
+  const raw = Array.isArray(body.labour) ? body.labour : [];
+  if (raw.length > 25) throw bad('Too many labour lines.');
+  const labour = [];
+  for (const l of raw) {
+    const sk = db.prepare('SELECT id FROM skills WHERE id = ? AND active = 1').get(String(l && l.skillId || ''));
+    const n = Number(l && l.count);
+    if (!sk) throw bad('Choose the type of worker from the list.', 'bad_skill');
+    if (!Number.isInteger(n) || n < 1 || n > 500) throw bad('Workers per type must be between 1 and 500.');
+    const ex = labour.find(x => x.skillId === sk.id);
+    if (ex) ex.count = Math.min(500, ex.count + n); else labour.push({ skillId: sk.id, count: n });
+  }
   if (!body.acceptTerms) throw TERMS_ERR();
-  return { category_id: cat.id, title, description, city, site_address, site_lat: lat, site_lng: lng, budget_min: bmin, budget_max: bmax, start_date: start, duration_days: dur };
+  return { labour: JSON.stringify(labour), category_id: cat.id, title, description, city, site_address, site_lat: lat, site_lng: lng, budget_min: bmin, budget_max: bmax, start_date: start, duration_days: dur };
 }
 
 async function createProject(clientId, body) {
   const input = validateProject(body);
   const invite = Array.isArray(body.invite) ? [...new Set(body.invite.map(String))].slice(0, 50) : [];
   const row = Object.assign({ id: id('prj'), client_id: clientId, invited_only: body.invitedOnly && invite.length ? 1 : 0, terms_accepted_at: nowIso(), created_at: nowIso() }, input);
-  db.prepare(`INSERT INTO projects (id, client_id, category_id, title, description, city, site_address, site_lat, site_lng, budget_min, budget_max, start_date, duration_days, invited_only, terms_accepted_at, created_at)
-    VALUES (@id, @client_id, @category_id, @title, @description, @city, @site_address, @site_lat, @site_lng, @budget_min, @budget_max, @start_date, @duration_days, @invited_only, @terms_accepted_at, @created_at)`).run(row);
+  db.prepare(`INSERT INTO projects (id, client_id, category_id, title, description, city, site_address, site_lat, site_lng, budget_min, budget_max, start_date, duration_days, invited_only, terms_accepted_at, created_at, labour)
+    VALUES (@id, @client_id, @category_id, @title, @description, @city, @site_address, @site_lat, @site_lng, @budget_min, @budget_max, @start_date, @duration_days, @invited_only, @terms_accepted_at, @created_at, @labour)`).run(row);
   db.prepare('UPDATE users SET terms_accepted_at = COALESCE(terms_accepted_at, ?) WHERE id = ?').run(nowIso(), clientId);
   const invited = inviteToProject(row, invite);
   const audience = row.invited_only ? invited : matchingPartners(row);
@@ -127,12 +139,16 @@ function leadsFor(partnerId) {
     .map(p => Object.assign(publicProject(p), { invited: invited.has(p.id), myQuote: db.prepare('SELECT id, amount, days, note, status FROM quotes WHERE project_id = ? AND partner_id = ?').get(p.id, partnerId) || null,
       quotes: db.prepare("SELECT COUNT(*) AS n FROM quotes WHERE project_id = ? AND status = 'submitted'").get(p.id).n }));
 }
+function labourOf(p) {
+  let list = []; try { list = JSON.parse(p.labour || '[]'); } catch (e) { list = []; }
+  return list.map(l => { const s = db.prepare('SELECT id, cat, en, hi, mr, wage FROM skills WHERE id = ?').get(l.skillId); return s ? Object.assign({ skillId: s.id, count: l.count }, s) : null; }).filter(Boolean);
+}
 function publicProject(p) {
   const c = getCategory(p.category_id);
   return { id: p.id, title: p.title, description: p.description, city: p.city, site_address: p.site_address, site_lat: p.site_lat, site_lng: p.site_lng,
     budget_min: p.budget_min, budget_max: p.budget_max, start_date: p.start_date, duration_days: p.duration_days, status: p.status, created_at: p.created_at,
     category: c ? { id: c.id, en: c.en, hi: c.hi, mr: c.mr, group_en: c.group_en, group_hi: c.group_hi, group_mr: c.group_mr } : null,
-    client_company: p.client_company, biz_type: p.biz_type, client_id: p.client_id };
+    client_company: p.client_company, biz_type: p.biz_type, client_id: p.client_id, labour: labourOf(p) };
 }
 
 async function submitQuote(partnerId, projectId, body) {

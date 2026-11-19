@@ -274,6 +274,8 @@ const MIGRATIONS = [
      stars INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5), comment TEXT NOT NULL DEFAULT '',
      dispute TEXT NOT NULL DEFAULT '', dispute_status TEXT NOT NULL DEFAULT 'none', created_at TEXT NOT NULL
    );`,
+  // 10: daily labour (skilled / unskilled counts) a client can add to a project requirement.
+  `ALTER TABLE projects ADD COLUMN labour TEXT NOT NULL DEFAULT '[]';`,
 ];
 
 db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');

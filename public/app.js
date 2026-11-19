@@ -25,8 +25,10 @@ const S = {
   ws: { skill: '', area: '', exp: '', minRating: '', maxWage: '', level: 'any', start: '', days: '1', verified: false, fav: false, results: null, total: 0 },
   askFor: '', cats: null, ptab: 'leads', quoteFor: '', awardConfirm: '', pdisputeFor: '',
   pp: { company: '', contactName: '', city: '', areas: '', experienceYears: '', teamSize: '', gst: '', licenceNo: '', about: '', cats: {}, catQ: '' },
-  np: { categoryId: '', title: '', description: '', city: '', siteAddress: '', lat: null, lng: null, budgetMin: '', budgetMax: '', startDate: '', durationDays: '', invite: [], onlyInvited: false },
-  dir: { category: '', city: '', verified: false, results: null, total: 0 },
+  np: { categoryId: '', title: '', description: '', city: '', siteAddress: '', lat: null, lng: null, budgetMin: '', budgetMax: '', startDate: '', durationDays: '', invite: [], onlyInvited: false, labour: {} },
+  lt: {}, bump: '',
+  dir: { category: '', city: '', verified: false, results: null, total: 0, q: '' },
+  ct: {},
   qf: { amount: '', days: '', note: '' },
   pf: { area: '', exp: '', minRating: '', maxWage: '', verified: false, fav: false },
   rep: { kind: 'problem', category: 'other', bookingId: '', text: '', urgent: false },
@@ -139,7 +141,7 @@ function pay(payment, description) {
     }
     loadCheckout().then(() => {
       const rz = new window.Razorpay(Object.assign({}, payment.checkout, {
-        name: 'Labour Katta', description, theme: { color: '#E8A317' },
+        name: 'BUILDMATE', description, theme: { color: '#E8A317' },
         handler: async (resp) => { try { await api('POST', '/api/payments/verify', resp); resolve(true); } catch (e) { toast(e.message); resolve(false); } },
         modal: { ondismiss: () => resolve(false) },
       }));
@@ -165,7 +167,7 @@ function renderTop() {
   const integ = S.me && S.me.integrations;
   const test = integ && (integ.payments === 'test' || integ.whatsapp === 'test');
   document.getElementById('top').innerHTML = '<header class="top"><div class="top-in">' +
-    '<div class="brand"><div class="mark" aria-hidden="true">LK</div><b>Labour Katta</b></div>' +
+    '<div class="brand"><img class="mark" src="/icon.svg" alt="" width="38" height="38"><b class="wordmark">BUILD<span>MATE</span></b></div>' +
     (u && isAdmin() ? '<div class="seg" role="group" aria-label="View"><button type="button" data-a="view" data-v="app" aria-pressed="' + (S.view !== 'admin') + '">' + esc(t('app')) + '</button><button type="button" data-a="view" data-v="admin" aria-pressed="' + (S.view === 'admin') + '">' + esc(t('admin')) + '</button></div>' : '') +
     '<div class="seg" role="group" aria-label="Language">' + langs.map(l => '<button type="button" data-a="lang" data-v="' + l[0] + '" aria-pressed="' + (S.lang === l[0]) + '">' + l[1] + '</button>').join('') + '</div>' +
     (u || isAdmin() ? '<button type="button" class="btn ghost small" data-a="logout">' + esc(t('signOut')) + '</button>' : '') +
@@ -191,8 +193,9 @@ function renderLogin() {
   if (!S.portal || S.portal === 'login') {
     // Log in with a registered number: the number decides whether the worker or builder screen opens.
     const card = (v, ico, title, sub) => '<button type="button" class="opt" data-a="portal" data-v="' + v + '"><span class="ico" aria-hidden="true">' + ico + '</span><b>' + esc(title) + '</b><span class="small muted">' + esc(sub) + '</span></button>';
-    return '<div class="login stack"><div class="landing-hero"><div class="row"><div class="mark" aria-hidden="true">LK</div><div><h1>Labour Katta</h1></div></div>' +
+    return '<div class="login stack"><div class="landing-hero"><div class="row"><img class="mark" src="/icon.svg" alt="" width="64" height="64"><div><h1 class="wordmark big">BUILD<span>MATE</span></h1><span class="brandline">' + esc(BRAND_LINE) + '</span></div></div>' +
       '<span class="muted">' + esc(t('tagline')) + '</span>' +
+      (S.me && S.me.launchCity ? '<span class="livepill">📍 ' + esc(t('liveIn', { c: S.me.launchCity })) + '</span>' : '') +
       '<div class="trust"><div><b>✓</b>' + esc(t('trustVerified')) + '</div><div><b>₹</b>' + esc(t('trustPrice')) + '</div><div><b>💬</b>' + esc(t('trustWa')) + '</div></div></div>' +
       '<section class="card"><h2>' + esc(t('loginTitle')) + '</h2><span class="small muted">' + esc(t('loginSub')) + '</span>' + phoneForm() + '</section>' +
       '<div class="divider">' + esc(t('newHere')) + '</div>' +
@@ -200,7 +203,7 @@ function renderLogin() {
       '<button type="button" class="opt partnercard" data-a="portal" data-v="partner"><span class="ico" aria-hidden="true">🧰</span><span><b>' + esc(t('portalPartner')) + '</b><br><span class="small muted">' + esc(t('portalPartnerSub')) + '</span></span></button>' +
       '<button type="button" class="btn ghost small" style="align-self:center" data-a="portal" data-v="admin">🔒 ' + esc(t('portalAdmin')) + '</button></div>';
   }
-  let h = '<div class="login stack"><div class="row"><div class="mark" aria-hidden="true">LK</div><div><h1>Labour Katta</h1><span class="muted">' + esc(t('tagline')) + '</span></div></div>';
+  let h = '<div class="login stack"><div class="row"><img class="mark" src="/icon.svg" alt="" width="56" height="56"><div><h1 class="wordmark">BUILD<span>MATE</span></h1><span class="muted small">' + esc(BRAND_LINE) + '</span></div></div>';
   const title = S.portal === 'admin' ? t('portalAdmin') : S.portal === 'worker' ? t('portalWorker') : S.portal === 'partner' ? t('portalPartner') : t('portalContractor');
   h += '<div class="row" style="justify-content:space-between"><h2>' + esc(title) + '</h2><button type="button" class="btn ghost small" data-a="portal" data-v="">← ' + esc(t('back')) + '</button></div><section class="card">';
   if (S.portal === 'admin') {
@@ -229,7 +232,7 @@ function renderWorkerProfile(editing) {
   const f = S.f, list = S.me.skills.filter(s => s.cat === f.wcat);
   return '<section class="card">' + (editing ? '<h2>' + esc(t('tProfile')) + '</h2>' : '<h1>' + esc(t('iAmWorker')) + '</h1>') +
     '<label class="f" for="w-name">' + esc(t('fullName')) + '<input id="w-name" class="in" data-f="wname" value="' + esc(f.wname) + '" maxlength="80" autocomplete="name"></label>' +
-    '<label class="f" for="w-area">' + esc(t('area')) + '<input id="w-area" class="in" data-f="warea" value="' + esc(f.warea) + '" placeholder="' + esc(t('areaPh')) + '" maxlength="80"></label>' +
+    '<label class="f" for="w-area">' + esc(t('area')) + '<input id="w-area" class="in" list="lk-areas" data-f="warea" value="' + esc(f.warea) + '" placeholder="' + esc(t('areaPh')) + '" maxlength="80"></label>' +
     '<b>' + esc(t('pickSkills')) + '</b>' + seg('wcat', [['skilled', t('skilled')], ['unskilled', t('unskilled')]], f.wcat) +
     '<div class="chips">' + list.map(s => '<button type="button" class="chip sk" data-a="wskill" data-v="' + esc(s.id) + '" aria-pressed="' + !!f.wskills[s.id] + '">' + esc(skillName(s)) + '</button>').join('') + '</div>' +
     '<div class="f"><span>' + esc(t('experience')) + '</span>' + seg('wexp', [['0-1', '0–1'], ['1-3', '1–3'], ['3-5', '3–5'], ['5+', '5+']], f.wexp) + '</div>' +
@@ -276,7 +279,7 @@ function addressBlock(b, directions) {
   if (!link) return '';
   return '<div class="row" style="gap:8px;align-items:flex-start"><span class="small grow">' + esc(b.site_address || t('pinnedLocation')) + '</span><a class="btn ghost small" href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(directions ? t('directions') : t('openMaps')) + '</a></div>';
 }
-// Verification badges: mobile is verified by the WhatsApp login code; the rest are checked by the Labour Katta team.
+// Verification badges: mobile is verified by the WhatsApp login code; the rest are checked by the BuildMate team.
 function vBadges(v) {
   if (!v) return '';
   return '<div class="badges">' + [['phone', 'vMobile'], ['id', 'vAadhaar'], ['photo', 'vPhoto'], ['bank', 'vBank'], ['skill', 'vTest']]
@@ -326,6 +329,49 @@ function bookingCard(b) {
   }
   return h + '</section>';
 }
+// ----- interactive labour tiles (Book workers + project requirements) -----
+const SKILL_ICON = { 'Mason': '🧱', 'RCC / Shuttering': '🏗️', 'Bar bender': '🔩', 'Carpenter': '🪚', 'Furniture carpenter': '🪑', 'POP / False ceiling': '🪜', 'Tile fitter': '🔲',
+  'Painter': '🎨', 'Plumber': '🚰', 'Electrician': '⚡', 'Welder / Fabricator': '🔥', 'Waterproofing': '💧', 'Marble / Granite': '🪨', 'Aluminium / Glass': '🪟',
+  'Helper': '🧰', 'Loading / Unloading': '📦', 'Digging': '⛏️', 'Site cleaning': '🧹', 'Curing (watering)': '🚿', 'Watchman': '🔦' };
+const skillIcon = (s) => SKILL_ICON[s.en] || (s.cat === 'skilled' ? '🛠️' : '👷');
+const ltMap = (key) => key === 'np' ? S.np.labour : S.f.qty;
+function labourTiles(key, opts) {
+  const qty = ltMap(key), st = S.lt[key] || (S.lt[key] = { q: '', cat: 'all' });
+  const q = (st.q || '').trim().toLowerCase();
+  const all = S.me.skills;
+  const count = (cat) => all.filter(s => s.cat === cat).reduce((a, s) => a + (qty[s.id] || 0), 0);
+  const sk = count('skilled'), un = count('unskilled');
+  const price = (s) => opts.pay === 'lk' ? s.wage + settings().margin_per_worker_day : s.wage;
+  const tile = (s) => {
+    const n = qty[s.id] || 0, av = opts.avail ? (opts.avail[s.id] || 0) : null;
+    const pct = av == null ? 0 : Math.min(100, Math.round(100 * Math.min(av, Math.max(n, 1)) / Math.max(n, 1, av || 1)));
+    return '<div class="ltile' + (n ? ' on' : '') + (S.bump === key + s.id ? ' bump' : '') + '">' +
+      '<button type="button" class="lt-main" data-a="ltStep" data-k="' + key + '" data-s="' + esc(s.id) + '" data-v="1" aria-label="' + esc(t('ltAddOne', { s: skillName(s) })) + '">' +
+      '<span class="lt-icon" aria-hidden="true">' + skillIcon(s) + '</span><span class="lt-name">' + esc(skillName(s)) + '</span>' +
+      '<span class="lt-wage num">' + money(price(s)) + esc(t('perDayShort')) + '</span>' +
+      (av != null ? '<span class="lt-bar' + (n > av ? ' short' : '') + '" aria-hidden="true"><i style="width:' + (n > av ? pct : 100) + '%"></i></span><span class="lt-av num' + (n > av ? ' short' : '') + '">' + esc(n > av ? t('ltShort', { n: n - av, a: av }) : t('ltFree', { n: av })) + '</span>' : '') +
+      '</button>' +
+      (n ? '<span class="lt-badge num" aria-hidden="true">' + n + '</span><div class="lt-step"><button type="button" data-a="ltStep" data-k="' + key + '" data-s="' + esc(s.id) + '" data-v="-1" aria-label="' + esc(skillName(s)) + ' −1">−</button><output class="num" aria-live="polite">' + n + '</output>' +
+        '<button type="button" data-a="ltStep" data-k="' + key + '" data-s="' + esc(s.id) + '" data-v="1" aria-label="' + esc(skillName(s)) + ' +1">+</button><button type="button" class="lt-five" data-a="ltStep" data-k="' + key + '" data-s="' + esc(s.id) + '" data-v="5" aria-label="' + esc(skillName(s)) + ' +5">+5</button></div>'
+        : '<span class="lt-add" aria-hidden="true">' + esc(t('ltAdd')) + '</span>') + '</div>';
+  };
+  const chosen = all.filter(s => qty[s.id] > 0);
+  let h = '<section class="card ltcard"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>' + esc(opts.title) + '</h2>' + (opts.sub ? '<span class="small muted">' + esc(opts.sub) + '</span>' : '') + '</div>' +
+    '<div class="lt-sum"><span class="pill ' + (sk ? 'p-blue' : 'p-grey') + '">' + esc(t('ltSkilled')) + ' <b class="num">' + sk + '</b></span><span class="pill ' + (un ? 'p-amber' : 'p-grey') + '">' + esc(t('ltUnskilled')) + ' <b class="num">' + un + '</b></span></div></div>' +
+    (chosen.length ? '<div class="chips">' + chosen.map(s => '<button type="button" class="chip lt-chip" data-a="ltZero" data-k="' + key + '" data-s="' + esc(s.id) + '" aria-label="' + esc(t('remove') + ' ' + skillName(s)) + '">' + skillIcon(s) + ' <b class="num">' + qty[s.id] + '</b> × ' + esc(skillName(s)) + ' ✕</button>').join('') + '</div>' : '') +
+    '<div class="row lt-tools">' + searchBar('lt-q-' + key, 'lt.' + key + '.q', st.q, t('ltSearch')) +
+    '<div class="seg" role="group">' + [['all', t('allLbl')], ['skilled', t('ltSkilled')], ['unskilled', t('ltUnskilled')]].map(o => '<button type="button" data-a="ltCat" data-k="' + key + '" data-v="' + o[0] + '" aria-pressed="' + (st.cat === o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</div></div>';
+  let any = false;
+  for (const [cat, title] of [['skilled', t('skilledWorkers')], ['unskilled', t('unskilledWorkers')]]) {
+    if (st.cat !== 'all' && st.cat !== cat) continue;
+    const list = all.filter(s => s.cat === cat && (!q || skillName(s).toLowerCase().includes(q) || s.en.toLowerCase().includes(q)));
+    if (!list.length) continue;
+    any = true;
+    h += '<div class="lt-head"><b>' + esc(title) + '</b><span class="small muted">' + esc(t('tapToAdd')) + '</span></div><div class="ltgrid">' + list.map(tile).join('') + '</div>';
+  }
+  if (!any) h += '<p class="muted" style="margin:0">' + esc(t('noMatch')) + '</p>';
+  return h + (opts.footer || '') + '</section>';
+}
 function qtySection(cat, title) {
   const f = S.f, list = S.me.skills.filter(s => s.cat === cat);
   const chosen = list.filter(s => f.qty[s.id] > 0);
@@ -342,7 +388,7 @@ function renderBook() {
   const f = S.f;
   if (!f.start || f.start < istDate(0)) f.start = istDate(1);
   const q = quote();
-  let h = qtySection('skilled', t('skilledWorkers')) + qtySection('unskilled', t('unskilledWorkers'));
+  let h = labourTiles('b', { avail: S.data.avail, pay: f.pay, title: t('labourNeedTitle') });
   const pin = { lat: f.lat, lng: f.lng, address: f.siteAddress };
   h += '<section class="card"><h2>' + esc(t('siteTitle')) + '</h2>' +
     '<label class="f" for="b-site">' + esc(t('site')) + '<input id="b-site" class="in" data-f="site" value="' + esc(f.site) + '" placeholder="' + esc(t('sitePh')) + '" maxlength="160"></label>' +
@@ -502,7 +548,7 @@ const CFG = [
   ['contractor_plan', 'Builder plan – monthly'], ['platform_fee_per_worker', 'Platform fee – per worker, every booking'], ['job_fee', 'Job fee – builder without plan'],
   ['ot_multiplier', 'Overtime multiplier (× hourly wage) when no rate is agreed'], ['reminder_hour', 'Reminder to workers – hour of day before job (0–23)'], ['confirm_hours_before', 'Alert builder if not confirmed – hours before reporting'],
   ['project_inspection_fee', 'Projects – inspection (quality) charge per award'], ['project_platform_fee', 'Projects – platform fee per award'], ['partner_leads_verified_only', 'Projects – send leads only to verified contractors (1 = yes, 0 = no)'],
-  ['qc_per_day', 'Quality In-charge – per day'], ['margin_per_worker_day', 'Labour Katta margin – per worker per day'], ['silver_bonus', 'Silver tier bonus – per day'], ['gold_bonus', 'Gold tier bonus – per day']];
+  ['qc_per_day', 'Quality In-charge – per day'], ['margin_per_worker_day', 'BuildMate margin – per worker per day'], ['silver_bonus', 'Silver tier bonus – per day'], ['gold_bonus', 'Gold tier bonus – per day']];
 const PERM_LABELS = { bookings: 'Bookings', workers: 'Workers', builders: 'Builders', pricing: 'Prices & skills', coupons: 'Coupons', payments: 'Payments & messages', open_portals: 'Open portals', disputes: 'Reports, disputes & builder verification', projects: 'Projects marketplace & inspections' };
 function adminInfo() { return (S.me && S.me.admin) || { root: false, perms: [], name: '' }; }
 function canDo(p) { const a = adminInfo(); return a.root || a.perms.includes(p); }
@@ -599,7 +645,7 @@ function renderAdmin() {
       (S.formOpen.aw ? '<div class="grid3">' +
         '<label class="f" for="aw-phone">Mobile number<input id="aw-phone" class="in" type="tel" inputmode="numeric" ' + P('f.aw.phone', aw.phone) + '></label>' +
         '<label class="f" for="aw-name">Full name<input id="aw-name" class="in" ' + P('f.aw.name', aw.name) + '></label>' +
-        '<label class="f" for="aw-area">Area<input id="aw-area" class="in" ' + P('f.aw.area', aw.area) + '></label>' +
+        '<label class="f" for="aw-area">Area<input id="aw-area" class="in" list="lk-areas" ' + P('f.aw.area', aw.area) + '></label>' +
         '<label class="f">Experience' + sel('f.aw.experience', aw.experience, EXP_OPTS, 'Experience') + '</label>' +
         '<label class="f" for="aw-coupon">Coupon code (optional)<input id="aw-coupon" class="in" ' + P('f.aw.coupon', aw.coupon) + '></label></div>' +
         '<b class="small">Skilled</b>' + skillChips('f.aw.skills', aw.skills, 'skilled') + '<b class="small">Unskilled</b>' + skillChips('f.aw.skills', aw.skills, 'unskilled') +
@@ -670,7 +716,7 @@ function renderAdmin() {
   if (S.atab === 'bookings' && A.bookings) {
     const staff = A['staff-names'] || [];
     h += '<section class="card"><h2>Bookings</h2><span class="small muted">Assign a supervisor to a site. Every line of that order goes to the same supervisor.</span><div class="tablebox"><table><thead><tr><th>Builder</th><th>Work</th><th>Site</th><th>Start</th><th>Assigned</th><th>Payment</th><th>Amount</th><th>Status</th><th>Supervisor</th></tr></thead><tbody>' +
-      (A.bookings.length ? A.bookings.map(b => '<tr><td>' + esc(b.company) + '</td><td>' + esc(b.count) + ' × ' + esc(b.skill_en) + '</td><td>' + esc(b.site) + (b.site_address ? '<div class="small muted">' + esc(b.site_address) + '</div>' : '') + '</td><td class="num">' + esc(fmtDate(b.start_date)) + '</td><td class="num">' + b.assigned + ' / ' + b.count + '</td><td>' + (b.pay_mode === 'lk' ? 'Via Labour Katta' : 'Direct') + ' · ' + esc(b.payment_status) + '</td><td class="num">' + money(b.amount_due) + (b.platform_fee ? '<div class="small muted">incl. ' + money(b.platform_fee) + ' platform fee</div>' : '') + '</td><td>' + statusPill(b) + '</td>' +
+      (A.bookings.length ? A.bookings.map(b => '<tr><td>' + esc(b.company) + '</td><td>' + esc(b.count) + ' × ' + esc(b.skill_en) + '</td><td>' + esc(b.site) + (b.site_address ? '<div class="small muted">' + esc(b.site_address) + '</div>' : '') + '</td><td class="num">' + esc(fmtDate(b.start_date)) + '</td><td class="num">' + b.assigned + ' / ' + b.count + '</td><td>' + (b.pay_mode === 'lk' ? 'Via BuildMate' : 'Direct') + ' · ' + esc(b.payment_status) + '</td><td class="num">' + money(b.amount_due) + (b.platform_fee ? '<div class="small muted">incl. ' + money(b.platform_fee) + ' platform fee</div>' : '') + '</td><td>' + statusPill(b) + '</td>' +
         '<td><select class="in sm" aria-label="Supervisor for ' + esc(b.site) + '" data-sup="' + esc(b.id) + '"><option value="">— None —</option>' + staff.map(x => '<option value="' + esc(x.id) + '"' + (b.supervisor_id === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></td></tr>').join('') : '<tr><td colspan="9" class="muted">No bookings yet.</td></tr>') + '</tbody></table></div>' +
       (staff.length ? '' : '<span class="small muted">No supervisors yet. ' + (me.root ? 'Add them in the Supervisors tab.' : '') + '</span>') + '</section>';
   }
@@ -745,7 +791,8 @@ function render() {
   else if (u.role === 'contractor') html = S.me.contractor ? renderContractor() : renderContractorProfile();
   else if (u.role === 'partner') html = S.me.partner ? renderPartner() : (S.cats ? '<div class="login stack">' + renderPartnerProfile(false) + '</div>' : '<p class="muted">' + esc(t('loading')) + '</p>');
   else html = S.me.worker ? renderWorker() : '<div class="login stack">' + renderWorkerProfile(false) + '</div>';
-  app.innerHTML = '<div style="padding-top:16px">' + html + '</div>';
+  const areas = (S.me && S.me.areas) || [];
+  app.innerHTML = '<div style="padding-top:16px">' + html + '</div>' + '<datalist id="lk-areas">' + areas.map(a => '<option value="' + esc(a) + '">').join('') + '</datalist>';
   if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { if (ss != null && el.setSelectionRange) el.setSelectionRange(ss, se); } catch (e) { /* not a text field */ } } }
 }
 
@@ -1064,7 +1111,45 @@ function catSelect(path, value, placeholder, label) {
   return '<select class="in" aria-label="' + esc(label || placeholder) + '" data-p="' + path + '"><option value="">' + esc(placeholder) + '</option>' +
     (S.cats || []).map(g => '<optgroup label="' + esc(grpName(g)) + '">' + g.categories.map(c => '<option value="' + esc(c.id) + '"' + (value === c.id ? ' selected' : '') + '>' + esc(catName(c)) + '</option>').join('') + '</optgroup>').join('') + '</select>';
 }
+// Tile picker for contractor / professional types: a search bar, then group tiles → type tiles (or matches while searching).
+const GICON = { g01: '📐', g02: '🚜', g03: '🏗️', g04: '🏠', g05: '🚰', g06: '⚡', g07: '🔥', g08: '🧱', g09: '🚪', g10: '🎨', g11: '🛗', g12: '🌳', g13: '🚚', g14: '🧪' };
+const catMatch = (c, q) => catName(c).toLowerCase().includes(q) || c.en.toLowerCase().includes(q) || grpName(c.g).toLowerCase().includes(q);
+function catTiles(key, opts) {
+  const st = S.ct[key] || (S.ct[key] = { q: '', group: '' });
+  const q = (st.q || '').trim().toLowerCase();
+  const isOn = (id) => opts.multi ? !!(opts.selected || {})[id] : opts.selected === id;
+  const tile = (c, showGroup) => '<button type="button" class="ctile" data-a="catPick" data-k="' + key + '" data-v="' + esc(c.id) + '" aria-pressed="' + isOn(c.id) + '">' +
+    '<span class="ctick" aria-hidden="true">' + (isOn(c.id) ? '✓' : '') + '</span><span class="cname">' + esc(catName(c)) + '</span>' +
+    (showGroup ? '<span class="cgrp">' + esc(grpName(c.g)) + '</span>' : '') + '</button>';
+  let h = '<div class="picker"><div class="searchbar"><span aria-hidden="true">🔍</span><input id="ct-q-' + key + '" type="search" placeholder="' + esc(t('catSearchPh')) + '" aria-label="' + esc(t('catSearchPh')) + '" ' + P('ct.' + key + '.q', st.q) + '>' +
+    (st.q ? '<button type="button" class="linkbtn" style="padding:0" data-a="catClear" data-k="' + key + '">' + esc(t('clear')) + '</button>' : '') + '</div>';
+  // the current choice stays visible at the top
+  if (!opts.multi && opts.selected && !q) {
+    const c = findCat(opts.selected);
+    if (c) h += '<div class="picked"><span class="small muted">' + esc(t('selectedLbl')) + '</span>' + tile(c, true) + '</div>';
+    // once chosen, the groups fold away until "Change" is tapped
+    if (c && !st.open && !st.group) return h + '<button type="button" class="btn ghost small" style="align-self:flex-start" data-a="catOpen" data-k="' + key + '">' + esc(t('changeLbl')) + '</button></div>';
+  }
+  if (opts.allowAll && !q && !st.group) h += '<button type="button" class="ctile wide" data-a="catPick" data-k="' + key + '" data-v="" aria-pressed="' + !opts.selected + '"><span class="ctick" aria-hidden="true">' + (!opts.selected ? '✓' : '') + '</span><span class="cname">' + esc(t('allCats')) + '</span></button>';
+  if (q) {
+    const list = allCats().filter(c => catMatch(c, q));
+    h += '<span class="small muted">' + esc(list.length ? t('nMatch', { n: list.length }) : t('noMatch')) + '</span><div class="tiles">' + list.slice(0, 80).map(c => tile(c, true)).join('') + '</div>';
+  } else if (st.group) {
+    const g = (S.cats || []).find(x => x.id === st.group);
+    h += '<div class="row" style="justify-content:space-between"><button type="button" class="btn ghost small" data-a="catGroup" data-k="' + key + '" data-v="">← ' + esc(t('allGroups')) + '</button><b>' + (GICON[st.group] || '🔧') + ' ' + esc(grpName(g)) + '</b></div>' +
+      '<div class="tiles">' + (g ? g.categories.map(c => tile(Object.assign({ g }, c), false)).join('') : '') + '</div>';
+  } else {
+    h += '<div class="tiles groups">' + (S.cats || []).map(g => {
+      const n = opts.multi ? g.categories.filter(c => isOn(c.id)).length : (g.categories.some(c => isOn(c.id)) ? 1 : 0);
+      return '<button type="button" class="gtile" data-a="catGroup" data-k="' + key + '" data-v="' + esc(g.id) + '"' + (n ? ' aria-current="true"' : '') + '><span class="gicon" aria-hidden="true">' + (GICON[g.id] || '🔧') + '</span><span class="cname">' + esc(grpName(g)) + '</span>' +
+        '<span class="cgrp">' + esc(t('nTypes', { n: g.categories.length })) + (n ? ' · ' + esc(t('nChosen', { n })) : '') + '</span></button>';
+    }).join('') + '</div>';
+  }
+  return h + '</div>';
+}
 const budgetText = (p) => p.budget_max ? (p.budget_min ? money(p.budget_min) + ' – ' : t('upTo') + ' ') + money(p.budget_max) : t('budgetOpen');
+// Brand line: kept in English in every language, like the name.
+const BRAND_LINE = 'Building Connections. Building Dreams.';
 const BIZ = ['builder', 'architect', 'developer', 'owner', 'contractor_firm'];
 function partnerBadge(v) { return v && v.verified ? '<span class="pill p-green">✓ ' + esc(t('pVerified')) + '</span>' : '<span class="pill p-grey">' + esc(t('pNotVerified')) + '</span>'; }
 function partnerStatsLine(p) {
@@ -1085,12 +1170,13 @@ function fillPartnerForm() {
   p.categories.forEach(c => { S.pp.cats[c] = true; });
 }
 function renderPartnerProfile(editing) {
+  if (!editing && !S.pp.city && S.me.launchCity) S.pp.city = S.me.launchCity;
   const f = S.pp, q = (f.catQ || '').trim().toLowerCase();
   const chosen = Object.keys(f.cats).filter(k => f.cats[k]);
   let h = '<section class="card">' + (editing ? '<h2>' + esc(t('tProfile')) + '</h2>' : '<h1>' + esc(t('partnerSignupTitle')) + '</h1><span class="muted">' + esc(t('partnerSignupSub')) + '</span>') +
     '<label class="f" for="pp-co">' + esc(t('ppCompany')) + '<input id="pp-co" class="in" maxlength="120" ' + P('pp.company', f.company) + '></label>' +
     '<label class="f" for="pp-cn">' + esc(t('ppContact')) + '<input id="pp-cn" class="in" maxlength="80" ' + P('pp.contactName', f.contactName) + '></label>' +
-    '<div class="grid2"><label class="f" for="pp-city">' + esc(t('ppCity')) + '<input id="pp-city" class="in" maxlength="80" ' + P('pp.city', f.city) + '></label>' +
+    '<div class="grid2"><label class="f" for="pp-city">' + esc(t('ppCity')) + '<input id="pp-city" class="in" list="lk-areas" maxlength="80" ' + P('pp.city', f.city) + '></label>' +
     '<label class="f" for="pp-areas">' + esc(t('ppAreas')) + '<input id="pp-areas" class="in" maxlength="200" placeholder="' + esc(t('ppAreasPh')) + '" ' + P('pp.areas', f.areas) + '></label>' +
     '<label class="f" for="pp-exp">' + esc(t('ppExp')) + '<input id="pp-exp" class="in num" type="number" min="0" max="80" ' + P('pp.experienceYears', f.experienceYears) + '></label>' +
     '<label class="f" for="pp-team">' + esc(t('ppTeam')) + '<input id="pp-team" class="in num" type="number" min="0" ' + P('pp.teamSize', f.teamSize) + '></label>' +
@@ -1099,13 +1185,7 @@ function renderPartnerProfile(editing) {
     '<label class="f" for="pp-about">' + esc(t('ppAbout')) + '<textarea id="pp-about" class="in ta" maxlength="1000" placeholder="' + esc(t('ppAboutPh')) + '" data-p="pp.about">' + esc(f.about || '') + '</textarea></label>' +
     '<b>' + esc(t('ppCats', { n: chosen.length })) + '</b>' +
     (chosen.length ? '<div class="chips">' + chosen.map(id => '<button type="button" class="chip sk" aria-pressed="true" data-a="ppCat" data-v="' + esc(id) + '">' + esc(catName(findCat(id))) + ' ✕</button>').join('') + '</div>' : '<span class="small muted">' + esc(t('ppCatsHelp')) + '</span>') +
-    '<input id="pp-q" class="in" placeholder="' + esc(t('ppCatSearch')) + '" aria-label="' + esc(t('ppCatSearch')) + '" ' + P('pp.catQ', f.catQ) + '>' +
-    '<div class="catlist">' + (S.cats || []).map(g => {
-      const list = g.categories.filter(c => !q || catName(c).toLowerCase().includes(q) || c.en.toLowerCase().includes(q));
-      if (!list.length) return '';
-      return '<details' + (q ? ' open' : '') + '><summary>' + esc(grpName(g)) + ' <span class="muted small">(' + list.length + ')</span></summary><div class="chips">' +
-        list.map(c => '<button type="button" class="chip sk" style="min-height:38px;font-size:14px" data-a="ppCat" data-v="' + esc(c.id) + '" aria-pressed="' + !!f.cats[c.id] + '">' + esc(catName(c)) + '</button>').join('') + '</div></details>';
-    }).join('') + '</div>' +
+    catTiles('pp', { multi: true, selected: f.cats }) +
     errBox() + '<button type="button" class="btn primary" data-a="savePartner">' + esc(editing ? t('save') : t('saveContinue')) + '</button></section>';
   return h;
 }
@@ -1118,8 +1198,10 @@ function renderPartner() {
     '<span class="small">' + esc((s.rating.count ? '★ ' + s.rating.avg + ' (' + s.rating.count + ') · ' : '') + t('projectsWon', { n: s.won }) + ' · ' + t('projectsDone', { n: s.completed })) + '</span></section>';
   h += tabs([['leads', t('tLeads')], ['work', t('tMyQuotes')], ['profile', t('tProfile')], ['support', t('tHelp')], ['messages', t('tMessages')]], S.ptab, 'ptab');
   if (!p.vflags.verified && S.ptab === 'leads') h += '<div class="status s-warn">' + esc(t('pVerifyNote')) + '</div>';
-  if (S.ptab === 'leads') h += (S.data.leads.length ? S.data.leads.map(leadCard).join('') : empty(t('noLeads')));
-  if (S.ptab === 'work') h += (S.data.pwork.length ? S.data.pwork.map(pworkCard).join('') : empty(t('noQuotes')));
+  const lq = (S.f.ldq || '').trim().toLowerCase();
+  if ((S.ptab === 'leads' && S.data.leads.length) || (S.ptab === 'work' && S.data.pwork.length)) h += '<section class="card">' + searchBar('ld-q', 'f.ldq', S.f.ldq, t(S.ptab === 'leads' ? 'searchLeads' : 'searchProjects')) + '</section>';
+  if (S.ptab === 'leads') { const l = S.data.leads.filter(p => projMatch(p, lq)); h += S.data.leads.length ? (l.length ? l.map(leadCard).join('') : empty(t('noMatch'))) : empty(t('noLeads')); }
+  if (S.ptab === 'work') { const l = S.data.pwork.filter(p => projMatch(p, lq)); h += S.data.pwork.length ? (l.length ? l.map(pworkCard).join('') : empty(t('noMatch'))) : empty(t('noQuotes')); }
   if (S.ptab === 'profile') h += renderPartnerProfile(true);
   if (S.ptab === 'support') h += renderSupport([]);
   if (S.ptab === 'messages') h += renderMessages();
@@ -1131,6 +1213,7 @@ function projectMeta(p) {
     '<div class="small muted">' + esc([p.client_company ? p.client_company + ' (' + t('biz_' + (p.biz_type || 'builder')) + ')' : '', p.city, p.start_date ? t('startsOn', { d: fmtDate(p.start_date) }) : '', p.duration_days ? t('daysN', { n: p.duration_days }) : ''].filter(Boolean).join(' · ')) + '</div>' +
     '<div class="kv"><span class="small">' + esc(t('budget')) + '</span><b class="num">' + esc(budgetText(p)) + '</b></div>' +
     (p.description ? '<p class="small" style="margin:0;white-space:pre-wrap">' + esc(p.description) + '</p>' : '') +
+    (p.labour && p.labour.length ? '<div class="labline"><b class="small">' + esc(t('labourAlso')) + '</b><div class="chips">' + p.labour.map(l => '<span class="chip lt-chip static">' + skillIcon(l) + ' <b class="num">' + l.count + '</b> × ' + esc(skillName(l)) + '</span>').join('') + '</div></div>' : '') +
     addressBlock({ site_address: p.site_address || p.city, site_lat: p.site_lat, site_lng: p.site_lng }, false);
 }
 function leadCard(p) {
@@ -1170,6 +1253,10 @@ function inspectionLine(p) {
 }
 
 // ----- client (builder / architect / developer / owner): Projects tab -----
+function searchBar(id, path, value, label) {
+  return '<div class="searchbar"><span aria-hidden="true">🔍</span><input id="' + id + '" type="search" placeholder="' + esc(label) + '" aria-label="' + esc(label) + '" ' + P(path, value) + '></div>';
+}
+const projMatch = (p, q) => !q || [p.title, p.description, p.city, p.site_address, p.client_company, p.category && catName(p.category), p.category && p.category.en].filter(Boolean).join(' ').toLowerCase().includes(q);
 function renderClientProjects() {
   const fe = S.me.projectFees || { inspection: 0, platform: 0 };
   let h = '<section class="card hero"><span class="small" style="color:var(--amber)">' + esc(t('mkTitle')) + '</span><span>' + esc(t('mkSub')) + '</span>' +
@@ -1178,16 +1265,28 @@ function renderClientProjects() {
   h += '<div class="row">' + seg('mk', [['mine', t('mkMine')], ['post', t('mkPost')], ['dir', t('mkFind')]], S.f.mk) + '</div>';
   if (S.f.mk === 'post') h += renderPostProject();
   if (S.f.mk === 'dir') h += renderDirectory();
-  if (S.f.mk === 'mine') h += S.data.cprojects.length ? S.data.cprojects.map(clientProjectCard).join('') : empty(t('noProjects'));
+  if (S.f.mk === 'mine') {
+    const q = (S.f.pjq || '').trim().toLowerCase(), st = S.f.pjs || 'all';
+    const list = S.data.cprojects.filter(p => projMatch(p, q) && (st === 'all' || p.status === st));
+    if (S.data.cprojects.length) h += '<section class="card">' + searchBar('pj-q', 'f.pjq', S.f.pjq, t('searchProjects')) +
+      seg('pjs', [['all', t('allLbl')], ['open', t('pjOpen')], ['awarded', t('pjAwarded')], ['completed', t('pjCompleted')]], st) + '</section>';
+    h += S.data.cprojects.length ? (list.length ? list.map(clientProjectCard).join('') : empty(t('noMatch'))) : empty(t('noProjects'));
+  }
   return h;
 }
 function renderPostProject() {
+  if (!S.np.city && S.me.launchCity) S.np.city = S.me.launchCity;
   const f = S.np, pin = { lat: f.lat, lng: f.lng, address: f.siteAddress };
   return '<section class="card"><h2>' + esc(t('mkPost')) + '</h2>' +
-    '<label class="f">' + esc(t('needWho')) + catSelect('np.categoryId', f.categoryId, t('chooseCat'), t('needWho')) + '</label>' +
+    '<div class="f"><span>' + esc(t('needWho')) + '</span>' + catTiles('np', { selected: f.categoryId }) + '</div>' +
+    (() => {
+      const lines = S.me.skills.filter(s => f.labour[s.id] > 0), n = lines.reduce((a, s) => a + f.labour[s.id], 0), perDay = lines.reduce((a, s) => a + s.wage * f.labour[s.id], 0);
+      return '</section>' + labourTiles('np', { title: t('npLabourTitle'), sub: t('npLabourSub'),
+        footer: n ? '<div class="status s-ok num">' + esc(t('labourEst', { a: money(perDay), n })) + '</div>' : '' }) + '<section class="card">';
+    })() +
     '<label class="f" for="np-t">' + esc(t('npTitle')) + '<input id="np-t" class="in" maxlength="120" placeholder="' + esc(t('npTitlePh')) + '" ' + P('np.title', f.title) + '></label>' +
     '<label class="f" for="np-d">' + esc(t('npDesc')) + '<textarea id="np-d" class="in ta" maxlength="3000" placeholder="' + esc(t('npDescPh')) + '" data-p="np.description">' + esc(f.description || '') + '</textarea></label>' +
-    '<div class="grid2"><label class="f" for="np-c">' + esc(t('ppCity')) + '<input id="np-c" class="in" maxlength="80" ' + P('np.city', f.city) + '></label>' +
+    '<div class="grid2"><label class="f" for="np-c">' + esc(t('ppCity')) + '<input id="np-c" class="in" list="lk-areas" maxlength="80" ' + P('np.city', f.city) + '></label>' +
     '<label class="f" for="np-a">' + esc(t('siteAddress')) + '<input id="np-a" class="in" maxlength="300" ' + P('np.siteAddress', f.siteAddress) + '></label>' +
     '<label class="f" for="np-bmin">' + esc(t('budgetMin')) + '<input id="np-bmin" class="in num" type="number" min="0" ' + P('np.budgetMin', f.budgetMin) + '></label>' +
     '<label class="f" for="np-bmax">' + esc(t('budgetMax')) + '<input id="np-bmax" class="in num" type="number" min="0" ' + P('np.budgetMax', f.budgetMax) + '></label>' +
@@ -1200,15 +1299,18 @@ function renderPostProject() {
 }
 function renderDirectory() {
   const d = S.dir;
-  let h = '<section class="card"><h2>' + esc(t('mkFind')) + '</h2><div class="grid2"><label class="f">' + esc(t('needWho')) + catSelect('dir.category', d.category, t('allCats'), t('needWho')) + '</label>' +
-    '<label class="f" for="dir-c">' + esc(t('ppCity')) + '<input id="dir-c" class="in" ' + P('dir.city', d.city) + '></label></div>' +
+  let h = '<section class="card"><h2>' + esc(t('mkFind')) + '</h2><div class="f"><span>' + esc(t('needWho')) + '</span>' + catTiles('dir', { selected: d.category, allowAll: true }) + '</div>' +
+    '<label class="f" for="dir-c">' + esc(t('ppCity')) + '<input id="dir-c" class="in" list="lk-areas" ' + P('dir.city', d.city) + '></label>' +
     '<div class="chips"><button type="button" class="chip" data-a="dirToggle" data-v="verified" aria-pressed="' + !!d.verified + '">✓ ' + esc(t('pVerified')) + '</button></div>' +
     '<button type="button" class="btn primary" data-a="dirSearch">' + esc(t('fSearch')) + '</button></section>';
   if (d.results) {
     const open = S.data.cprojects.filter(p => p.status === 'open');
-    h += '<section class="card"><h2>' + esc(t('dirResults', { n: d.total })) + '</h2>' + (d.results.length ? '<div class="list">' + d.results.map(p => partnerCardHtml(p,
+    const dq = (d.q || '').trim().toLowerCase();
+    const shown = d.results.filter(p => !dq || (p.company + ' ' + (p.about || '') + ' ' + p.city + ' ' + (p.areas || '')).toLowerCase().includes(dq));
+    h += '<section class="card"><h2>' + esc(t('dirResults', { n: d.total })) + '</h2>' + (d.results.length > 3 ? searchBar('dir-q', 'dir.q', d.q, t('searchName')) : '') +
+      (shown.length ? '<div class="list">' + shown.map(p => partnerCardHtml(p,
       '<div class="stack" style="gap:6px;align-items:flex-end">' + (open.length ? '<select class="in sm" aria-label="' + esc(t('inviteTo')) + '" data-invite="' + esc(p.partner_id) + '"><option value="">' + esc(t('inviteTo')) + '</option>' + open.map(x => '<option value="' + esc(x.id) + '">' + esc(x.title) + '</option>').join('') + '</select>' : '') +
-      '<button type="button" class="btn ghost small" data-a="npInvite" data-v="' + esc(p.partner_id) + '" data-k="' + esc(p.company) + '">' + esc(t('inviteNew')) + '</button></div>')).join('') + '</div>' : '<p class="muted">' + esc(t('fNone')) + '</p>') +
+      '<button type="button" class="btn ghost small" data-a="npInvite" data-v="' + esc(p.partner_id) + '" data-k="' + esc(p.company) + '">' + esc(t('inviteNew')) + '</button></div>')).join('') + '</div>' : '<p class="muted">' + esc(t(d.results.length ? 'noMatch' : 'fNone')) + '</p>') +
       '<span class="small muted">' + esc(t('phoneAfterAward')) + '</span></section>';
   }
   return h;
@@ -1234,6 +1336,7 @@ function clientProjectCard(p) {
   } else if (p.status === 'open') h += '<p class="small muted" style="margin:0">' + esc(t('noQuotesYet')) + '</p>';
   if (p.payment_status === 'pending' && p.status === 'open') h += '<div class="status s-warn">' + esc(t('awardPending')) + '</div>';
   if (p.status === 'awarded' || p.status === 'completed') h += inspectionLine(p);
+  if (p.labour && p.labour.length && (p.status === 'open' || p.status === 'awarded')) h += '<button type="button" class="btn blue small" style="align-self:flex-start" data-a="bookProjectLabour" data-v="' + esc(p.id) + '">👷 ' + esc(t('bookTheseWorkers')) + '</button>';
   if (p.status === 'awarded') h += '<button type="button" class="btn ghost small" style="align-self:flex-start" data-a="completeProject" data-v="' + esc(p.id) + '">' + esc(t('markComplete')) + '</button>';
   if (p.status === 'completed') h += '<div class="row" style="gap:4px;align-items:center"><span class="small">' + esc(t('rateWorker')) + '</span>' + (p.rating && p.rating.dispute_status === 'open' ? '<span class="pill p-amber">' + esc(t('ratingUnderReview')) + '</span>' :
     [1, 2, 3, 4, 5].map(n => '<button type="button" class="star' + (p.rating && p.rating.stars >= n ? ' on' : '') + '" data-a="prate" data-b="' + esc(p.id) + '" data-v="' + n + '" aria-label="' + n + ' ★">★</button>').join('')) + '</div>';
@@ -1334,6 +1437,17 @@ document.addEventListener('click', (ev) => {
     askDel: () => { S.confirmDel = v; }, noDel: () => { S.confirmDel = ''; },
     tickTerms: () => { S.f[v] = !S.f[v]; },
     ppCat: () => { S.pp.cats[v] = !S.pp.cats[v]; },
+    catGroup: () => { const k = b.getAttribute('data-k'); (S.ct[k] = S.ct[k] || { q: '', group: '' }).group = v; },
+    ltStep: () => {
+      const k = b.getAttribute('data-k'), sid = b.getAttribute('data-s'), m = ltMap(k);
+      m[sid] = Math.max(0, Math.min(k === 'np' ? 500 : 100, (m[sid] || 0) + Number(v)));
+      S.bump = Number(v) > 0 ? k + sid : ''; setTimeout(() => { S.bump = ''; }, 450);
+      if (k === 'b' && !m[sid]) delete m[sid];
+    },
+    ltZero: () => { const m = ltMap(b.getAttribute('data-k')); delete m[b.getAttribute('data-s')]; },
+    ltCat: () => { const k = b.getAttribute('data-k'); (S.lt[k] = S.lt[k] || { q: '', cat: 'all' }).cat = v; },
+    catOpen: () => { const k = b.getAttribute('data-k'); (S.ct[k] = S.ct[k] || { q: '', group: '' }).open = true; },
+    catClear: () => { const k = b.getAttribute('data-k'); if (S.ct[k]) S.ct[k].q = ''; },
     openQuote: () => { const l = S.data.leads.find(x => x.id === bid); const q = l && l.myQuote; S.quoteFor = bid; S.qf = { amount: q ? String(q.amount) : '', days: q ? String(q.days) : (l && l.duration_days ? String(l.duration_days) : ''), note: q ? q.note : '' }; },
     closeQuote: () => { S.quoteFor = ''; },
     askAward: () => { S.awardConfirm = v; }, noAward: () => { S.awardConfirm = ''; },
@@ -1521,8 +1635,9 @@ document.addEventListener('click', (ev) => {
       const f = S.np;
       const r = await api('POST', '/api/client/projects', { categoryId: f.categoryId, title: f.title, description: f.description, city: f.city, siteAddress: f.siteAddress, siteLat: f.lat, siteLng: f.lng,
         budgetMin: f.budgetMin === '' ? null : n0(f.budgetMin), budgetMax: f.budgetMax === '' ? null : n0(f.budgetMax), startDate: f.startDate || null, durationDays: f.durationDays === '' ? null : n0(f.durationDays),
-        invite: f.invite.map(x => x.id), invitedOnly: f.onlyInvited, acceptTerms: true });
-      S.np = { categoryId: '', title: '', description: '', city: '', siteAddress: '', lat: null, lng: null, budgetMin: '', budgetMax: '', startDate: '', durationDays: '', invite: [], onlyInvited: false };
+        invite: f.invite.map(x => x.id), invitedOnly: f.onlyInvited, acceptTerms: true,
+        labour: Object.keys(f.labour).filter(k => f.labour[k] > 0).map(k => ({ skillId: k, count: f.labour[k] })) });
+      S.np = { categoryId: '', title: '', description: '', city: '', siteAddress: '', lat: null, lng: null, budgetMin: '', budgetMax: '', startDate: '', durationDays: '', invite: [], onlyInvited: false, labour: {} };
       S.f.mk = 'mine'; toast(t('projectPosted', { n: r.notified })); await loadTab();
     },
     npLocate: async () => {
@@ -1530,16 +1645,32 @@ document.addEventListener('click', (ev) => {
       const pos = await new Promise((ok, fail) => navigator.geolocation.getCurrentPosition(ok, () => fail(new Error(t('locationFailed'))), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }));
       S.np.lat = Math.round(pos.coords.latitude * 1e6) / 1e6; S.np.lng = Math.round(pos.coords.longitude * 1e6) / 1e6;
     },
+    catPick: async () => {
+      const k = b.getAttribute('data-k');
+      if (k === 'pp') { S.pp.cats[v] = !S.pp.cats[v]; return; }
+      if (k === 'np') { S.np.categoryId = v; S.ct.np = { q: '', group: '' }; return; }
+      if (k === 'dir') {
+        S.dir.category = v; S.ct.dir = { q: '', group: '' };
+        const q = new URLSearchParams(); if (v) q.set('category', v); if (S.dir.city) q.set('city', S.dir.city); if (S.dir.verified) q.set('verified', '1');
+        const r = await api('GET', '/api/client/partners?' + q.toString()); S.dir.results = r.partners; S.dir.total = r.total;
+      }
+    },
     dirSearch: async () => {
       const q = new URLSearchParams(); if (S.dir.category) q.set('category', S.dir.category); if (S.dir.city) q.set('city', S.dir.city); if (S.dir.verified) q.set('verified', '1');
       const r = await api('GET', '/api/client/partners?' + q.toString()); S.dir.results = r.partners; S.dir.total = r.total;
     },
-    inviteMore: async () => { S.f.mk = 'dir'; S.dir.category = v; const r = await api('GET', '/api/client/partners?category=' + encodeURIComponent(v)); S.dir.results = r.partners; S.dir.total = r.total; },
+    inviteMore: async () => { S.f.mk = 'dir'; S.dir.category = v; S.ct.dir = { q: '', group: '' }; const r = await api('GET', '/api/client/partners?category=' + encodeURIComponent(v)); S.dir.results = r.partners; S.dir.total = r.total; },
     award: async () => {
       const r = await api('POST', '/api/client/projects/' + bid + '/award', { quoteId: v });
       S.awardConfirm = '';
       if (r.payment) { const ok = await pay(r.payment, t('awardBtn')); if (!ok) { await loadTab(); return; } }
       toast(t('awardDone')); await loadTab();
+    },
+    bookProjectLabour: async () => {
+      const p = S.data.cprojects.find(x => x.id === v); if (!p) return;
+      const qty = {}; p.labour.forEach(l => { qty[l.skillId] = l.count; });
+      Object.assign(S.f, { qty, site: p.title.slice(0, 160), siteAddress: p.site_address || p.city || '', lat: p.site_lat, lng: p.site_lng, start: p.start_date && p.start_date > istDate(0) ? p.start_date : istDate(1) });
+      S.ctab = 'book'; await loadAvailability(); toast(t('bookPrefilled')); window.scrollTo(0, 0);
     },
     completeProject: async () => { await api('POST', '/api/client/projects/' + v + '/complete'); toast(t('saved')); await loadTab(); },
     cancelProject: async () => { await api('POST', '/api/client/projects/' + v + '/cancel'); S.confirmDelUser = ''; toast(t('saved')); await loadTab(); },
@@ -1555,7 +1686,7 @@ document.addEventListener('input', (ev) => {
   const el = ev.target;
   const lf = el.getAttribute('data-lf'); if (lf) { S.login[lf] = el.value; return; }
   const af = el.getAttribute('data-af'); if (af) { S.adm[af] = el.value; return; }
-  const pp = el.getAttribute('data-p'); if (pp && el.tagName !== 'SELECT') { setPath(pp, el.value); if (pp === 'q' || pp.startsWith('pf.') || pp === 'pp.catQ') render(); return; }
+  const pp = el.getAttribute('data-p'); if (pp && el.tagName !== 'SELECT') { setPath(pp, el.value); if (pp === 'q' || pp.startsWith('pf.') || pp.startsWith('ct.') || pp.startsWith('lt.') || ['f.pjq', 'f.ldq', 'dir.q'].includes(pp)) render(); return; }
   const k = el.getAttribute('data-f'); if (k) { S.f[k] = el.value; if (k === 'travel') render(); return; }
   const c = el.getAttribute('data-cfg'); if (c) { S.cfgDraft = Object.assign({}, S.cfgDraft || S.admin.settings); S.cfgDraft[c] = n0(el.value); }
 });

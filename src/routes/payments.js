@@ -19,7 +19,7 @@ function newPayment(userId, kind, refId, amount, extra = {}) {
   return row;
 }
 function assertTestModeAllowed() {
-  if (!config.allowTestMode) throw new HttpError(503, 'Online payments are not set up yet. Please contact Labour Katta.', 'payments_unavailable');
+  if (!config.allowTestMode) throw new HttpError(503, 'Online payments are not set up yet. Please contact BuildMate.', 'payments_unavailable');
 }
 const prefill = (user) => ({ contact: '+91' + user.phone });
 

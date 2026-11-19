@@ -29,8 +29,8 @@ function ratingOf(workerId) {
 /**
  * Levels, earned automatically:
  *  Bronze – registered.
- *  Silver – Aadhaar e-KYC and photo checked by the Labour Katta team, and a complete profile (name, area, at least one skill).
- *  Gold   – Silver, plus a skill test passed with the Labour Katta team, at least 5 completed jobs,
+ *  Silver – Aadhaar e-KYC and photo checked by the BuildMate team, and a complete profile (name, area, at least one skill).
+ *  Gold   – Silver, plus a skill test passed with the BuildMate team, at least 5 completed jobs,
  *           a reliability score of 85 or more and (if rated) an average rating of 4 or more.
  * The admin can cap a worker's level lower (tier_cap) but can never raise it above what the records support.
  */

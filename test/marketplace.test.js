@@ -79,11 +79,15 @@ const rejects = (p, code, msg) => assert.rejects(p, e => (e.body && e.body.code)
     const proj = { categoryId: rcc.id, title: 'RCC work for G+7 building', description: 'Slab, columns, beams for 7 floors', city: 'Thane', budgetMin: 4000000, budgetMax: 6000000, startDate: todayIST(15), durationDays: 120 };
     await rejects(cl('POST', '/api/client/projects', Object.assign({}, proj, { acceptTerms: false })), 'terms_required');
     await rejects(cl('POST', '/api/client/projects', Object.assign({}, proj, { categoryId: 'nope', acceptTerms: true })), 'bad_category');
-    const p1 = await cl('POST', '/api/client/projects', Object.assign({}, proj, { acceptTerms: true }));
+    await rejects(cl('POST', '/api/client/projects', Object.assign({}, proj, { labour: [{ skillId: 'nope', count: 2 }], acceptTerms: true })), 'bad_skill');
+    await rejects(cl('POST', '/api/client/projects', Object.assign({}, proj, { labour: [{ skillId: 's01', count: 0 }], acceptTerms: true })), 400);
+    const p1 = await cl('POST', '/api/client/projects', Object.assign({}, proj, { labour: [{ skillId: 's01', count: 4 }, { skillId: 's15', count: 6 }, { skillId: 's01', count: 1 }], acceptTerms: true }));
     assert.strictEqual(p1.notified, 1, 'only the RCC contractor is told');
     assert.ok(outbox('newLead')[0].body.includes('RCC work for G+7 building'));
     assert.strictEqual((await pa('GET', '/api/partner/leads')).leads.length, 0, 'architect does not see RCC lead');
     assert.strictEqual((await pb('GET', '/api/partner/leads')).leads.length, 1);
+    const lead = (await pb('GET', '/api/partner/leads')).leads[0];
+    assert.deepStrictEqual(lead.labour.map(l => [l.en, l.count, l.cat]), [['Mason', 5, 'skilled'], ['Helper', 6, 'unskilled']], 'daily labour shown on the lead, same skill merged');
     // directory and invite
     let dir = (await cl('GET', `/api/client/partners?category=${rcc.id}`)).partners;
     assert.strictEqual(dir.length, 1); assert.strictEqual(dir[0].company, 'Strong RCC Works'); assert.ok(!('phone' in dir[0]));
